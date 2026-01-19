@@ -45,7 +45,7 @@ class GeminiEmbeddings:
     @property
     def dimensions(self) -> int:
         """Return embedding dimensions based on model."""
-        # text-embedding-004 produces 768-dimensional embeddings
+        # gemini-embedding-001 produces 768-dimensional embeddings
         return self.settings.pgvector_embedding_dimensions
 
     @retry(

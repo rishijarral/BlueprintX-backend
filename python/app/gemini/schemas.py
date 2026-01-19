@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 class GeminiModel(str, Enum):
     """Available Gemini models."""
 
-    FLASH = "gemini-2.0-flash"
-    FLASH_LITE = "gemini-2.0-flash-lite"
+    FLASH = "gemini-3-flash-preview"
+    FLASH_LITE = "gemini-3-flash-preview-lite"
     PRO = "gemini-1.5-pro"
     PRO_LATEST = "gemini-1.5-pro-latest"
     FLASH_8B = "gemini-1.5-flash-8b"

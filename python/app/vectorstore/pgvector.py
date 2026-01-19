@@ -31,7 +31,7 @@ class DocumentEmbedding(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(768), nullable=False)  # Gemini text-embedding-004 = 768 dims
+    embedding = Column(Vector(768), nullable=False)  # Gemini gemini-embedding-001 = 768 dims
     metadata_ = Column("metadata", JSONB, nullable=False, default=dict)
 
     # Denormalized fields for efficient filtering

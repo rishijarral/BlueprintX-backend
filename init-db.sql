@@ -43,5 +43,5 @@ CREATE INDEX IF NOT EXISTS ix_document_embeddings_embedding
 -- GRANT ALL PRIVILEGES ON TABLE document_embeddings TO blueprintx_app;
 
 COMMENT ON TABLE document_embeddings IS 'Vector embeddings for document chunks used in RAG';
-COMMENT ON COLUMN document_embeddings.embedding IS 'Gemini text-embedding-004 vector (768 dimensions)';
+COMMENT ON COLUMN document_embeddings.embedding IS 'Gemini gemini-embedding-001 vector (768 dimensions)';
 COMMENT ON COLUMN document_embeddings.metadata IS 'Additional metadata as JSON (job_id, start_char, end_char, etc.)';
