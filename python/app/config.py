@@ -32,10 +32,10 @@ class Settings(BaseSettings):
 
     # Gemini API
     gemini_api_key: str = Field(..., description="Google Gemini API key")
-    gemini_model_text: str = "gemini-2.0-flash"
-    gemini_model_vision: str = "gemini-2.0-flash"
-    gemini_model_fast: str = "gemini-2.0-flash"
-    gemini_embedding_model: str = "text-embedding-004"
+    gemini_model_text: str = "gemini-3-flash-preview"
+    gemini_model_vision: str = "gemini-3-flash-preview"
+    gemini_model_fast: str = "gemini-3-flash-preview"
+    gemini_embedding_model: str = "gemini-embedding-001"
     gemini_timeout_seconds: int = 120
     gemini_max_retries: int = 3
 
