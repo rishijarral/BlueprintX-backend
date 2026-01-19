@@ -1,0 +1,43 @@
+# BlueprintX AI Service Dependencies
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.18
+
+# Pydantic
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Gemini SDK (new unified SDK)
+google-genai>=1.0.0
+
+# LangChain ecosystem
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.0.0
+langgraph>=0.2.0
+
+# PDF processing
+pdf2image>=1.17.0
+Pillow>=11.0.0
+
+# Database & Vector store
+asyncpg>=0.30.0
+sqlalchemy[asyncio]>=2.0.0
+pgvector>=0.3.0
+
+# HTTP client
+httpx>=0.28.0
+
+# Retry logic
+tenacity>=9.0.0
+
+# Structured logging
+structlog>=24.0.0
+
+# Redis
+redis>=5.0.0
+
+# Utilities
+python-dateutil>=2.9.0

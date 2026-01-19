@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Database: PostgreSQL with pgvector extension
+  # =============================================================================
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: blueprintx-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: blueprintx
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - blueprintx-network
+
+  # =============================================================================
+  # Redis: Caching and session management
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: blueprintx-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - blueprintx-network
+
+  # =============================================================================
+  # Rust API: Main backend service
+  # =============================================================================
+  rust-api:
+    build:
+      context: ./rust
+      dockerfile: Dockerfile
+    container_name: blueprintx-rust-api
+    environment:
+      # Server
+      ENV: ${ENV:-dev}
+      SERVER_ADDR: 0.0.0.0:8080
+      # Database
+      DATABASE_URL: postgres://postgres:postgres@db:5432/blueprintx
+      DATABASE_MAX_CONNECTIONS: 10
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CACHE_TTL_SECONDS: 3600
+      # Logging
+      RUST_LOG: ${RUST_LOG:-info}
+      # CORS
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # Supabase Auth
+      SUPABASE_JWT_JWKS_URL: ${SUPABASE_JWT_JWKS_URL}
+      SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
+      JWKS_CACHE_TTL_SECONDS: 1800
+      # AI Service
+      AI_SERVICE_URL: http://ai-service:8000
+      AI_SERVICE_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
+      AI_SERVICE_TIMEOUT_SECONDS: 120
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - blueprintx-network
+
+  # =============================================================================
+  # AI Service: Python LLM service for Gemini-powered analysis
+  # =============================================================================
+  ai-service:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: blueprintx-ai-service
+    environment:
+      # Server
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8000
+      ENV: ${ENV:-dev}
+      # Security
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
+      # Gemini
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL_TEXT: ${GEMINI_MODEL_TEXT:-gemini-2.0-flash}
+      GEMINI_MODEL_VISION: ${GEMINI_MODEL_VISION:-gemini-2.0-flash}
+      GEMINI_MODEL_FAST: ${GEMINI_MODEL_FAST:-gemini-2.0-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      # Database
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/blueprintx
+      # Redis
+      REDIS_URL: redis://redis:6379/1
+      REDIS_CACHE_TTL_SECONDS: 3600
+      # Vector store
+      VECTOR_STORE_TYPE: pgvector
+      PGVECTOR_COLLECTION_NAME: document_embeddings
+      PGVECTOR_EMBEDDING_DIMENSIONS: 768
+      # Jobs
+      JOB_STORE_TYPE: memory
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ai_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - blueprintx-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ai_data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  blueprintx-network:
+    driver: bridge
