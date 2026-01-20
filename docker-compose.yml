@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # =============================================================================
   # Database: PostgreSQL with pgvector extension
@@ -8,16 +6,16 @@ services:
     image: pgvector/pgvector:pg16
     container_name: blueprintx-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: blueprintx
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-blueprintx}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +30,7 @@ services:
     container_name: blueprintx-redis
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -52,15 +50,16 @@ services:
       dockerfile: Dockerfile
     container_name: blueprintx-rust-api
     environment:
-      # Server
+      # Environment
       ENV: ${ENV:-dev}
-      SERVER_ADDR: 0.0.0.0:8080
-      # Database
-      DATABASE_URL: postgres://postgres:postgres@db:5432/blueprintx
-      DATABASE_MAX_CONNECTIONS: 10
+      # Server
+      SERVER_ADDR: ${RUST_SERVER_ADDR:-0.0.0.0:8080}
+      # Database (constructed from components)
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-blueprintx}
+      DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-10}
       # Redis
-      REDIS_URL: redis://redis:6379/0
-      REDIS_CACHE_TTL_SECONDS: 3600
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/0
+      REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-3600}
       # Logging
       RUST_LOG: ${RUST_LOG:-info}
       # CORS
@@ -69,13 +68,13 @@ services:
       SUPABASE_JWT_JWKS_URL: ${SUPABASE_JWT_JWKS_URL}
       SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER}
       SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
-      JWKS_CACHE_TTL_SECONDS: 1800
-      # AI Service
-      AI_SERVICE_URL: http://ai-service:8000
+      JWKS_CACHE_TTL_SECONDS: ${JWKS_CACHE_TTL_SECONDS:-1800}
+      # AI Service (Python)
+      AI_SERVICE_URL: http://ai-service:${PYTHON_SERVER_PORT:-8000}
       AI_SERVICE_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
-      AI_SERVICE_TIMEOUT_SECONDS: 120
+      AI_SERVICE_TIMEOUT_SECONDS: ${AI_SERVICE_TIMEOUT_SECONDS:-120}
     ports:
-      - "8080:8080"
+      - "${RUST_SERVER_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -101,34 +100,42 @@ services:
       dockerfile: Dockerfile
     container_name: blueprintx-ai-service
     environment:
-      # Server
-      SERVER_HOST: 0.0.0.0
-      SERVER_PORT: 8000
+      # Environment
       ENV: ${ENV:-dev}
+      # Server
+      SERVER_HOST: ${PYTHON_SERVER_HOST:-0.0.0.0}
+      SERVER_PORT: ${PYTHON_SERVER_PORT:-8000}
       # Security
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
       # Gemini
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL_TEXT: ${GEMINI_MODEL_TEXT:-gemini-3-flash-preview}
-      GEMINI_MODEL_VISION: ${GEMINI_MODEL_VISION:-gemini-3-flash-preview}
-      GEMINI_MODEL_FAST: ${GEMINI_MODEL_FAST:-gemini-3-flash-preview}
+      GEMINI_MODEL_TEXT: ${GEMINI_MODEL_TEXT:-gemini-2.5-flash}
+      GEMINI_MODEL_VISION: ${GEMINI_MODEL_VISION:-gemini-2.5-flash}
+      GEMINI_MODEL_FAST: ${GEMINI_MODEL_FAST:-gemini-2.5-flash}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
-      # Database
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/blueprintx
-      # Redis
-      REDIS_URL: redis://redis:6379/1
-      REDIS_CACHE_TTL_SECONDS: 3600
+      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-120}
+      GEMINI_MAX_RETRIES: ${GEMINI_MAX_RETRIES:-3}
+      # Database (with asyncpg prefix for Python)
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-blueprintx}
+      # Redis (using db 1 for Python)
+      REDIS_URL: redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/1
+      REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-3600}
       # Vector store
-      VECTOR_STORE_TYPE: pgvector
-      PGVECTOR_COLLECTION_NAME: document_embeddings
-      PGVECTOR_EMBEDDING_DIMENSIONS: 768
+      VECTOR_STORE_TYPE: ${VECTOR_STORE_TYPE:-pgvector}
+      PGVECTOR_COLLECTION_NAME: ${PGVECTOR_COLLECTION_NAME:-document_embeddings}
+      PGVECTOR_EMBEDDING_DIMENSIONS: ${PGVECTOR_EMBEDDING_DIMENSIONS:-768}
+      # Document processing
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-100}
+      PDF_DPI: ${PDF_DPI:-200}
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-200}
       # Jobs
-      JOB_STORE_TYPE: memory
+      JOB_STORE_TYPE: ${JOB_STORE_TYPE:-memory}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
     ports:
-      - "8000:8000"
+      - "${PYTHON_SERVER_PORT:-8000}:8000"
     volumes:
       - ai_data:/data
     depends_on:
