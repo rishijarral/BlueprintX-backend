@@ -3,10 +3,10 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.dependencies import (
     GeminiClientDep,
     GeminiEmbeddingsDep,
