@@ -72,7 +72,7 @@ services:
       # AI Service (Python)
       AI_SERVICE_URL: http://ai-service:${PYTHON_SERVER_PORT:-8000}
       AI_SERVICE_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
-      AI_SERVICE_TIMEOUT_SECONDS: ${AI_SERVICE_TIMEOUT_SECONDS:-120}
+      AI_SERVICE_TIMEOUT_SECONDS: ${AI_SERVICE_TIMEOUT_SECONDS:-300}
     ports:
       - "${RUST_SERVER_PORT:-8080}:8080"
     depends_on:
@@ -109,11 +109,11 @@ services:
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}
       # Gemini
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL_TEXT: ${GEMINI_MODEL_TEXT:-gemini-2.5-flash}
-      GEMINI_MODEL_VISION: ${GEMINI_MODEL_VISION:-gemini-2.5-flash}
-      GEMINI_MODEL_FAST: ${GEMINI_MODEL_FAST:-gemini-2.5-flash}
+      GEMINI_MODEL_TEXT: ${GEMINI_MODEL_TEXT:-gemini-3-flash-preview}
+      GEMINI_MODEL_VISION: ${GEMINI_MODEL_VISION:-gemini-3-flash-preview}
+      GEMINI_MODEL_FAST: ${GEMINI_MODEL_FAST:-gemini-3-flash-preview}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
-      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-120}
+      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-300}
       GEMINI_MAX_RETRIES: ${GEMINI_MAX_RETRIES:-3}
       # Database (with asyncpg prefix for Python)
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-blueprintx}
@@ -126,14 +126,21 @@ services:
       PGVECTOR_EMBEDDING_DIMENSIONS: ${PGVECTOR_EMBEDDING_DIMENSIONS:-768}
       # Document processing
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-100}
-      PDF_DPI: ${PDF_DPI:-200}
-      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
-      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-200}
+      PDF_DPI: ${PDF_DPI:-600}
+      CHUNK_SIZE: ${CHUNK_SIZE:-2000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-400}
       # Jobs
       JOB_STORE_TYPE: ${JOB_STORE_TYPE:-memory}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+    # Memory limits for 600 DPI blueprint processing
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     ports:
       - "${PYTHON_SERVER_PORT:-8000}:8000"
     volumes:

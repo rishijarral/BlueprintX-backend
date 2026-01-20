@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     gemini_model_vision: str = "gemini-3-flash-preview"
     gemini_model_fast: str = "gemini-3-flash-preview"
     gemini_embedding_model: str = "gemini-embedding-001"
-    gemini_timeout_seconds: int = 120
+    gemini_timeout_seconds: int = 300
     gemini_max_retries: int = 3
 
     # Database
@@ -52,9 +52,9 @@ class Settings(BaseSettings):
 
     # Document processing
     max_upload_size_mb: int = 100
-    pdf_dpi: int = 200
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
+    pdf_dpi: int = 600
+    chunk_size: int = 2000
+    chunk_overlap: int = 400
 
     # Redis
     redis_url: str | None = Field(
