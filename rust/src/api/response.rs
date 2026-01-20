@@ -101,3 +101,6 @@ impl IntoResponse for NoContent {
         StatusCode::NO_CONTENT.into_response()
     }
 }
+
+// Re-export pagination types for convenience
+pub use super::pagination::{Paginated, PaginationMeta};

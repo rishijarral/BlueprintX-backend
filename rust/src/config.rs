@@ -54,6 +54,11 @@ pub struct Settings {
     pub ai_service_url: String,
     pub ai_service_token: String,
     pub ai_service_timeout_seconds: u64,
+
+    // Supabase API (for auth proxy)
+    pub supabase_url: String,
+    pub supabase_anon_key: String,
+    pub supabase_service_role_key: String,
 }
 
 impl Settings {
@@ -106,6 +111,13 @@ impl Settings {
             .and_then(|s| s.parse().ok())
             .unwrap_or(120); // 2 minutes default for LLM calls
 
+        // Supabase API (for auth proxy)
+        let supabase_url = env::var("SUPABASE_URL").context("SUPABASE_URL must be set")?;
+        let supabase_anon_key =
+            env::var("SUPABASE_ANON_KEY").context("SUPABASE_ANON_KEY must be set")?;
+        let supabase_service_role_key = env::var("SUPABASE_SERVICE_ROLE_KEY")
+            .context("SUPABASE_SERVICE_ROLE_KEY must be set")?;
+
         Ok(Settings {
             env,
             server_addr,
@@ -121,6 +133,9 @@ impl Settings {
             ai_service_url,
             ai_service_token,
             ai_service_timeout_seconds,
+            supabase_url,
+            supabase_anon_key,
+            supabase_service_role_key,
         })
     }
 }

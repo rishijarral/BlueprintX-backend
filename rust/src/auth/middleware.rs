@@ -89,7 +89,8 @@ impl FromRequestParts<Arc<AppState>> for RequireAuth {
         })?;
 
         // Build auth context
-        let context = AuthContext::from_claims(&claims).map_err(|e| {
+        #[allow(deprecated)]
+        let context = AuthContext::from_claims_with_token(&claims, token).map_err(|e| {
             tracing::warn!(error = %e, "Failed to build auth context");
             AuthError::InvalidToken(e.to_string())
         })?;

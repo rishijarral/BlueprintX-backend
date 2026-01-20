@@ -9,23 +9,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 /// Pagination query parameters
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct PaginationParams {
     /// Page number (1-indexed)
-    #[serde(default = "default_page")]
-    pub page: u32,
+    pub page: Option<u32>,
 
     /// Items per page
-    #[serde(default = "default_per_page")]
-    pub per_page: u32,
-}
-
-fn default_page() -> u32 {
-    1
-}
-
-fn default_per_page() -> u32 {
-    20
+    pub per_page: Option<u32>,
 }
 
 impl PaginationParams {
@@ -34,12 +24,12 @@ impl PaginationParams {
 
     /// Returns the clamped per_page value
     pub fn per_page(&self) -> u32 {
-        self.per_page.min(Self::MAX_PER_PAGE).max(1)
+        self.per_page.unwrap_or(20).min(Self::MAX_PER_PAGE).max(1)
     }
 
     /// Returns the page (1-indexed, minimum 1)
     pub fn page(&self) -> u32 {
-        self.page.max(1)
+        self.page.unwrap_or(1).max(1)
     }
 
     /// Calculate SQL OFFSET
@@ -50,15 +40,6 @@ impl PaginationParams {
     /// Calculate SQL LIMIT
     pub fn limit(&self) -> u32 {
         self.per_page()
-    }
-}
-
-impl Default for PaginationParams {
-    fn default() -> Self {
-        Self {
-            page: 1,
-            per_page: 20,
-        }
     }
 }
 

@@ -45,6 +45,31 @@ pub struct ErrorResponse {
 }
 
 impl ApiError {
+    /// Create an unauthorized error
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
+    }
+
+    /// Create a forbidden error
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::Forbidden(message.into())
+    }
+
+    /// Create a not found error
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::NotFound(message.into())
+    }
+
+    /// Create a bad request error
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::BadRequest(message.into())
+    }
+
+    /// Create an internal error
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(anyhow::anyhow!("{}", message.into()))
+    }
+
     fn status_code(&self) -> StatusCode {
         match self {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
