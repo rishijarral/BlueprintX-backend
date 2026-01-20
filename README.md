@@ -36,7 +36,7 @@ Backend services for BlueprintX - a construction project management platform for
 - Supabase project (for auth)
 - Google Gemini API key
 
-## Setup
+## Quick Start
 
 ### 1. Clone and configure
 
@@ -56,7 +56,7 @@ SUPABASE_JWT_ISSUER=https://YOUR_PROJECT.supabase.co/auth/v1
 # Required - Get from Google AI Studio
 GEMINI_API_KEY=your-gemini-api-key
 
-# Required - Generate a random token (must match between services)
+# Required - Generate a secure token
 INTERNAL_API_TOKEN=$(openssl rand -base64 32)
 ```
 
@@ -82,12 +82,172 @@ curl http://localhost:8080/api/health
 # {"status":"healthy","version":"0.1.0","services":{"database":"ok","redis":"ok","ai_service":"ok"}}
 ```
 
+## Environment Configuration
+
+This project uses a **centralized environment configuration**. A single `.env` file in the root directory configures both services.
+
+### File Structure
+
+```
+BlueprintX-backend/
+├── .env.example          # Main config - use for Docker deployments
+├── .env                   # Your local config (git-ignored)
+├── rust/.env.example     # For local dev only (cargo run)
+└── python/.env.example   # For local dev only (uv run)
+```
+
+### For Docker (Recommended)
+
+Just use the root `.env` file. Docker Compose automatically:
+- Constructs database URLs with correct prefixes for each service
+- Routes shared variables (like `INTERNAL_API_TOKEN`) to both services
+- Sets up Redis with separate databases (db 0 for Rust, db 1 for Python)
+
+### For Local Development
+
+When running services outside Docker (e.g., `cargo run` or `uvicorn`):
+
+1. Copy the service-specific `.env.example` to `.env` in that directory
+2. Update hostnames from Docker service names to `localhost`
+
+### Required Variables
+
+| Variable | Description | Where to get |
+|----------|-------------|--------------|
+| `GEMINI_API_KEY` | Google Gemini API key | [Google AI Studio](https://makersuite.google.com/app/apikey) |
+| `SUPABASE_JWT_JWKS_URL` | Supabase JWKS URL | Supabase Dashboard > Settings > API |
+| `SUPABASE_JWT_ISSUER` | Supabase JWT issuer | Supabase Dashboard > Settings > API |
+| `INTERNAL_API_TOKEN` | Shared secret between services | Generate: `openssl rand -base64 32` |
+
+### Optional Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENV` | `dev` | Environment (dev/staging/prod) |
+| `POSTGRES_*` | `postgres` | Database credentials and host |
+| `REDIS_HOST` | `redis` | Redis hostname |
+| `RUST_LOG` | `info` | Rust log level |
+| `LOG_LEVEL` | `INFO` | Python log level |
+| `CORS_ALLOW_ORIGINS` | `http://localhost:3000` | Allowed CORS origins |
+| `GEMINI_MODEL_*` | `gemini-2.5-flash` | Gemini model overrides |
+| `CHUNK_SIZE` | `1000` | Document chunk size for embeddings |
+| `MAX_UPLOAD_SIZE_MB` | `100` | Max file upload size |
+
+See `.env.example` for the complete list with descriptions.
+
+## Docker Compose Commands
+
+### Starting Services
+
+```bash
+# Build and start all services (first time or after changes)
+docker compose up --build
+
+# Start in detached mode (background)
+docker compose up -d
+
+# Start without rebuilding (faster, use after initial build)
+docker compose up
+
+# Start specific services only
+docker compose up db redis              # Just infrastructure
+docker compose up db redis ai-service   # Without Rust API
+```
+
+### Stopping Services
+
+```bash
+# Stop all services (keeps data)
+docker compose down
+
+# Stop and remove volumes (WARNING: deletes all data)
+docker compose down -v
+
+# Stop specific service
+docker compose stop rust-api
+```
+
+### Viewing Logs
+
+```bash
+# View all logs
+docker compose logs
+
+# Follow logs in real-time
+docker compose logs -f
+
+# View specific service logs
+docker compose logs -f rust-api
+docker compose logs -f ai-service
+
+# View last 100 lines
+docker compose logs --tail 100 rust-api
+```
+
+### Rebuilding Services
+
+```bash
+# Rebuild specific service
+docker compose build rust-api
+docker compose build ai-service
+
+# Rebuild and restart
+docker compose up --build rust-api
+
+# Force rebuild without cache
+docker compose build --no-cache rust-api
+```
+
+### Database Operations
+
+```bash
+# Access PostgreSQL shell
+docker compose exec db psql -U postgres -d blueprintx
+
+# Run SQL file
+docker compose exec -T db psql -U postgres -d blueprintx < script.sql
+
+# Backup database
+docker compose exec db pg_dump -U postgres blueprintx > backup.sql
+
+# Restore database
+docker compose exec -T db psql -U postgres -d blueprintx < backup.sql
+```
+
+### Redis Operations
+
+```bash
+# Access Redis CLI
+docker compose exec redis redis-cli
+
+# Clear all Redis data
+docker compose exec redis redis-cli FLUSHALL
+```
+
+### Useful Commands
+
+```bash
+# Check service status
+docker compose ps
+
+# View resource usage
+docker compose top
+
+# Restart a service
+docker compose restart rust-api
+
+# Execute command in running container
+docker compose exec rust-api /bin/sh
+docker compose exec ai-service /bin/bash
+```
+
 ## Development
 
 ### Rust API
 
 ```bash
 cd rust
+cp .env.example .env  # Update with localhost URLs
 
 # Install Rust if needed
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -106,16 +266,16 @@ cargo test
 
 ```bash
 cd python
+cp .env.example .env  # Update with localhost URLs
 
-# Create virtualenv
+# Using uv (recommended)
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+
+# Or using pip
 python -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-pip install -r requirements-dev.txt  # for linting/testing
-
-# Run locally
 uvicorn app.main:app --reload --port 8000
 
 # Lint
@@ -151,13 +311,14 @@ Not exposed externally. Called by Rust API with `X-Internal-Token` header.
 
 ```
 .
-├── docker-compose.yml
+├── docker-compose.yml       # Service orchestration
 ├── init-db.sql              # pgvector setup
-├── .env.example
+├── .env.example             # Centralized env config
 │
 ├── rust/                    # Rust API
 │   ├── Cargo.toml
 │   ├── Dockerfile
+│   ├── .env.example         # Local dev config
 │   └── src/
 │       ├── main.rs
 │       ├── app.rs           # AppState, router
@@ -170,9 +331,10 @@ Not exposed externally. Called by Rust API with `X-Internal-Token` header.
 └── python/                  # Python AI Service
     ├── requirements.txt
     ├── Dockerfile
+    ├── .env.example         # Local dev config
     └── app/
         ├── main.py          # FastAPI app
-        ├── config.py        # Settings
+        ├── config.py        # Pydantic Settings
         ├── gemini/          # Gemini client, embeddings
         ├── graphs/          # LangGraph pipelines
         ├── vectorstore/     # pgvector implementation
@@ -180,26 +342,6 @@ Not exposed externally. Called by Rust API with `X-Internal-Token` header.
         ├── jobs/            # Async job system
         └── routes/          # API endpoints
 ```
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `SUPABASE_JWT_JWKS_URL` | Supabase JWKS URL for JWT verification |
-| `SUPABASE_JWT_ISSUER` | Supabase JWT issuer URL |
-| `INTERNAL_API_TOKEN` | Shared secret between Rust and Python |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ENV` | `dev` | Environment (dev/staging/prod) |
-| `RUST_LOG` | `info` | Rust log level |
-| `LOG_LEVEL` | `INFO` | Python log level |
-| `CORS_ALLOW_ORIGINS` | `http://localhost:3000` | Allowed CORS origins |
 
 ## Branches
 
