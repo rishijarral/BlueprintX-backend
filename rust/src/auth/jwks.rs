@@ -16,22 +16,32 @@ struct JwksResponse {
     keys: Vec<Jwk>,
 }
 
-/// Individual JWK key
+/// Individual JWK key (supports both RSA and EC)
 #[derive(Debug, Clone, Deserialize)]
 struct Jwk {
     kid: String,
     kty: String,
     #[serde(default)]
-    #[allow(dead_code)]
     alg: Option<String>,
-    n: String,
-    e: String,
+    // RSA fields
+    #[serde(default)]
+    n: Option<String>,
+    #[serde(default)]
+    e: Option<String>,
+    // EC fields
+    #[serde(default)]
+    crv: Option<String>,
+    #[serde(default)]
+    x: Option<String>,
+    #[serde(default)]
+    y: Option<String>,
 }
 
 /// Cached key with expiration
 #[derive(Clone)]
 struct CachedKey {
     key: DecodingKey,
+    algorithm: Algorithm,
     cached_at: Instant,
 }
 
@@ -71,10 +81,10 @@ impl JwksCache {
         let kid = header.kid.context("JWT missing kid header")?;
 
         // Try to get cached key
-        let decoding_key = self.get_or_fetch_key(&kid).await?;
+        let (decoding_key, algorithm) = self.get_or_fetch_key(&kid).await?;
 
-        // Set up validation
-        let mut validation = Validation::new(Algorithm::RS256);
+        // Set up validation with the correct algorithm
+        let mut validation = Validation::new(algorithm);
         validation.set_issuer(&[&self.issuer]);
         validation.set_audience(&[&self.audience]);
         validation.validate_exp = true;
@@ -87,13 +97,13 @@ impl JwksCache {
         Ok(token_data.claims)
     }
 
-    async fn get_or_fetch_key(&self, kid: &str) -> Result<DecodingKey> {
+    async fn get_or_fetch_key(&self, kid: &str) -> Result<(DecodingKey, Algorithm)> {
         // Check cache first
         {
             let cache = self.inner.read();
             if let Some(cached) = cache.keys.get(kid) {
                 if cached.cached_at.elapsed() < self.ttl {
-                    return Ok(cached.key.clone());
+                    return Ok((cached.key.clone(), cached.algorithm));
                 }
             }
         }
@@ -106,7 +116,7 @@ impl JwksCache {
         cache
             .keys
             .get(kid)
-            .map(|c| c.key.clone())
+            .map(|c| (c.key.clone(), c.algorithm))
             .context("Key not found in JWKS")
     }
 
@@ -145,20 +155,57 @@ impl JwksCache {
         cache.last_fetch = Some(Instant::now());
 
         for jwk in jwks.keys {
-            if jwk.kty != "RSA" {
-                continue;
-            }
+            let result = match jwk.kty.as_str() {
+                "EC" => {
+                    // EC key (ES256, ES384, ES512)
+                    let x = match &jwk.x {
+                        Some(x) => x,
+                        None => continue,
+                    };
+                    let y = match &jwk.y {
+                        Some(y) => y,
+                        None => continue,
+                    };
+                    let algorithm = match jwk.alg.as_deref() {
+                        Some("ES384") => Algorithm::ES384,
+                        _ => Algorithm::ES256, // Default to ES256
+                    };
+                    DecodingKey::from_ec_components(x, y).map(|key| (key, algorithm))
+                }
+                "RSA" => {
+                    // RSA key (RS256, RS384, RS512)
+                    let n = match &jwk.n {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    let e = match &jwk.e {
+                        Some(e) => e,
+                        None => continue,
+                    };
+                    let algorithm = match jwk.alg.as_deref() {
+                        Some("RS384") => Algorithm::RS384,
+                        Some("RS512") => Algorithm::RS512,
+                        _ => Algorithm::RS256, // Default to RS256
+                    };
+                    DecodingKey::from_rsa_components(n, e).map(|key| (key, algorithm))
+                }
+                _ => {
+                    tracing::debug!("Skipping unsupported key type: {}", jwk.kty);
+                    continue;
+                }
+            };
 
-            match DecodingKey::from_rsa_components(&jwk.n, &jwk.e) {
-                Ok(key) => {
+            match result {
+                Ok((key, algorithm)) => {
                     cache.keys.insert(
                         jwk.kid.clone(),
                         CachedKey {
                             key,
+                            algorithm,
                             cached_at: Instant::now(),
                         },
                     );
-                    tracing::debug!("Cached JWKS key: {}", jwk.kid);
+                    tracing::debug!("Cached JWKS key: {} ({})", jwk.kid, jwk.kty);
                 }
                 Err(e) => {
                     tracing::warn!("Failed to parse JWK {}: {}", jwk.kid, e);

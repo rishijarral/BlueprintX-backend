@@ -15,7 +15,7 @@ use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::auth::{
     AuthResponse, RefreshTokenRequest, SessionResponse, SignInRequest, SignUpRequest,
-    SupabaseAuthResponse, SupabaseErrorResponse, User,
+    SignupPendingResponse, SupabaseAuthResponse, SupabaseErrorResponse, SupabaseSignupResponse, User,
 };
 use crate::error::ApiError;
 
@@ -52,56 +52,94 @@ pub async fn sign_up(
     if !response.status().is_success() {
         let error: SupabaseErrorResponse = response.json().await.unwrap_or_else(|_| {
             SupabaseErrorResponse {
+                code: None,
+                error_code: None,
+                msg: None,
                 error: Some("Unknown error".to_string()),
                 error_description: None,
                 message: None,
-                msg: None,
             }
         });
         return Err(ApiError::bad_request(error.get_message()));
     }
 
-    let auth_response: SupabaseAuthResponse = response.json().await.map_err(|e| {
-        ApiError::internal(format!("Failed to parse auth response: {}", e))
+    // Get the response body as text first to handle both response formats
+    let response_text = response.text().await.map_err(|e| {
+        ApiError::internal(format!("Failed to read auth response: {}", e))
     })?;
 
-    // Create profile in database
-    let user_id: uuid::Uuid = auth_response.user.id.parse().map_err(|_| {
-        ApiError::internal("Invalid user ID from auth service")
-    })?;
-
-    let user_type = match req.user_type {
+    let user_type_str = match req.user_type {
         crate::domain::auth::UserType::Gc => "gc",
         crate::domain::auth::UserType::Sub => "sub",
     };
 
-    sqlx::query(
-        r#"
-        INSERT INTO profiles (id, email, user_type, company_name, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, NOW(), NOW())
-        ON CONFLICT (id) DO UPDATE SET
-            email = EXCLUDED.email,
-            user_type = EXCLUDED.user_type,
-            updated_at = NOW()
-        "#
-    )
-    .bind(user_id)
-    .bind(&req.email)
-    .bind(user_type)
-    .bind(&req.company_name)
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to create profile: {}", e)))?;
+    // Try to parse as full auth response (tokens included - email confirmation disabled)
+    if let Ok(auth_response) = serde_json::from_str::<SupabaseAuthResponse>(&response_text) {
+        // Create profile in database
+        let user_id: uuid::Uuid = auth_response.user.id.parse().map_err(|_| {
+            ApiError::internal("Invalid user ID from auth service")
+        })?;
 
-    let user: User = auth_response.user.into();
-    let response = AuthResponse {
-        access_token: auth_response.access_token,
-        refresh_token: auth_response.refresh_token,
-        expires_in: auth_response.expires_in,
-        user,
-    };
+        sqlx::query(
+            r#"
+            INSERT INTO profiles (id, email, user_type, company_name, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                email = EXCLUDED.email,
+                user_type = EXCLUDED.user_type,
+                updated_at = NOW()
+            "#
+        )
+        .bind(user_id)
+        .bind(&req.email)
+        .bind(user_type_str)
+        .bind(&req.company_name)
+        .execute(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create profile: {}", e)))?;
 
-    Ok((StatusCode::CREATED, Json(DataResponse::new(response))))
+        let user: User = auth_response.user.into();
+        let response = AuthResponse {
+            access_token: auth_response.access_token,
+            refresh_token: auth_response.refresh_token,
+            expires_in: auth_response.expires_in,
+            user,
+        };
+
+        return Ok((StatusCode::CREATED, Json(serde_json::to_value(DataResponse::new(response)).unwrap())));
+    }
+
+    // Try to parse as signup response (email confirmation required - new Supabase format)
+    if let Ok(signup_response) = serde_json::from_str::<SupabaseSignupResponse>(&response_text) {
+        // Create profile in database
+        let user_id: uuid::Uuid = signup_response.id.parse().map_err(|_| {
+            ApiError::internal("Invalid user ID from auth service")
+        })?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO profiles (id, email, user_type, company_name, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                email = EXCLUDED.email,
+                user_type = EXCLUDED.user_type,
+                updated_at = NOW()
+            "#
+        )
+        .bind(user_id)
+        .bind(&req.email)
+        .bind(user_type_str)
+        .bind(&req.company_name)
+        .execute(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to create profile: {}", e)))?;
+
+        let pending_response: SignupPendingResponse = signup_response.into();
+        return Ok((StatusCode::CREATED, Json(serde_json::to_value(DataResponse::new(pending_response)).unwrap())));
+    }
+
+    // Neither format matched
+    Err(ApiError::internal(format!("Failed to parse auth response: unexpected format")))
 }
 
 /// POST /api/auth/signin
@@ -131,10 +169,12 @@ pub async fn sign_in(
     if !response.status().is_success() {
         let error: SupabaseErrorResponse = response.json().await.unwrap_or_else(|_| {
             SupabaseErrorResponse {
+                code: None,
+                error_code: None,
+                msg: None,
                 error: Some("Invalid credentials".to_string()),
                 error_description: None,
                 message: None,
-                msg: None,
             }
         });
         return Err(ApiError::unauthorized(error.get_message()));
@@ -238,10 +278,12 @@ pub async fn refresh_token(
     if !response.status().is_success() {
         let error: SupabaseErrorResponse = response.json().await.unwrap_or_else(|_| {
             SupabaseErrorResponse {
+                code: None,
+                error_code: None,
+                msg: None,
                 error: Some("Invalid refresh token".to_string()),
                 error_description: None,
                 message: None,
-                msg: None,
             }
         });
         return Err(ApiError::unauthorized(error.get_message()));

@@ -137,8 +137,8 @@ pub async fn list_subcontractors(
         SELECT id, name, trade, rating, review_count, location, description,
                contact_email, contact_phone, projects_completed, average_bid_value,
                response_time, verified, 
-               COALESCE(specialties, '[]'::jsonb) as specialties, 
-               COALESCE(recent_projects, '[]'::jsonb) as recent_projects, 
+               COALESCE(to_jsonb(specialties), '[]'::jsonb) as specialties,
+               COALESCE(recent_projects, '[]'::jsonb) as recent_projects,
                created_at
         FROM subcontractors
         ORDER BY rating DESC, review_count DESC
@@ -186,7 +186,7 @@ pub async fn get_subcontractor(
         SELECT id, name, trade, rating, review_count, location, description,
                contact_email, contact_phone, projects_completed, average_bid_value,
                response_time, verified,
-               COALESCE(specialties, '[]'::jsonb) as specialties,
+               COALESCE(to_jsonb(specialties), '[]'::jsonb) as specialties,
                COALESCE(recent_projects, '[]'::jsonb) as recent_projects,
                created_at
         FROM subcontractors

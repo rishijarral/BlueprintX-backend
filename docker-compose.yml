@@ -69,6 +69,10 @@ services:
       SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER}
       SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
       JWKS_CACHE_TTL_SECONDS: ${JWKS_CACHE_TTL_SECONDS:-1800}
+      # Supabase API (for auth proxy)
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       # AI Service (Python)
       AI_SERVICE_URL: http://ai-service:${PYTHON_SERVER_PORT:-8000}
       AI_SERVICE_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-in-prod}

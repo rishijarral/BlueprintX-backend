@@ -31,6 +31,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1.33", features = ["db-postgres"] }
 thiserror = "1.0"
 anyhow = "1.0"
 url = "2"

@@ -17,13 +17,13 @@ WORKDIR /app/blueprintx-backend
 COPY Cargo.toml Cargo.lock ./
 
 # Build dependencies only (this layer will be cached)
-RUN cargo build --release && rm -rf src target/release/blueprintx-backend*
+RUN cargo build --release
 
-# Copy actual source code
+# Copy actual source code (this invalidates the cache)
 COPY src ./src
 
-# Build the application
-RUN cargo build --release
+# Touch source to ensure rebuild, then build the application
+RUN touch src/main.rs && cargo build --release
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime

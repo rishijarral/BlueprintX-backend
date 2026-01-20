@@ -54,13 +54,22 @@ pub struct User {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-/// Auth response with tokens
+/// Auth response with tokens (for signin or auto-confirmed signup)
 #[derive(Debug, Clone, Serialize)]
 pub struct AuthResponse {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_in: i64,
     pub user: User,
+}
+
+/// Signup response when email confirmation is required
+#[derive(Debug, Clone, Serialize)]
+pub struct SignupPendingResponse {
+    pub user_id: String,
+    pub email: String,
+    pub confirmation_required: bool,
+    pub message: String,
 }
 
 /// Session response
@@ -73,6 +82,7 @@ pub struct SessionResponse {
 
 // Supabase Auth API response types
 
+/// Response when signup returns tokens (email confirmation disabled or auto-confirmed)
 #[derive(Debug, Clone, Deserialize)]
 pub struct SupabaseAuthResponse {
     pub access_token: String,
@@ -81,6 +91,19 @@ pub struct SupabaseAuthResponse {
     pub expires_at: Option<i64>,
     pub refresh_token: String,
     pub user: SupabaseUser,
+}
+
+/// Response when signup requires email confirmation (new Supabase format 2025+)
+/// Returns just the user object without tokens
+#[derive(Debug, Clone, Deserialize)]
+pub struct SupabaseSignupResponse {
+    pub id: String,
+    pub email: Option<String>,
+    pub created_at: Option<String>,
+    pub confirmation_sent_at: Option<String>,
+    pub user_metadata: Option<serde_json::Value>,
+    pub app_metadata: Option<serde_json::Value>,
+    pub identities: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,12 +115,17 @@ pub struct SupabaseUser {
     pub app_metadata: Option<serde_json::Value>,
 }
 
+/// New Supabase error format (2025+)
 #[derive(Debug, Clone, Deserialize)]
 pub struct SupabaseErrorResponse {
+    // New format fields
+    pub code: Option<i32>,
+    pub error_code: Option<String>,
+    pub msg: Option<String>,
+    // Legacy format fields
     pub error: Option<String>,
     pub error_description: Option<String>,
     pub message: Option<String>,
-    pub msg: Option<String>,
 }
 
 impl SupabaseErrorResponse {
@@ -129,6 +157,17 @@ impl From<SupabaseUser> for User {
             email: su.email,
             user_type,
             created_at: su.created_at.and_then(|s| s.parse().ok()),
+        }
+    }
+}
+
+impl From<SupabaseSignupResponse> for SignupPendingResponse {
+    fn from(sr: SupabaseSignupResponse) -> Self {
+        Self {
+            user_id: sr.id,
+            email: sr.email.unwrap_or_default(),
+            confirmation_required: sr.confirmation_sent_at.is_some(),
+            message: "Please check your email to confirm your account.".to_string(),
         }
     }
 }

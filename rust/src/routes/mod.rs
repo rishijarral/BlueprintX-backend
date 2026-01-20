@@ -41,6 +41,8 @@ pub fn api_router() -> Router<Arc<AppState>> {
         .route("/projects", post(projects::create_project))
         .route("/projects", get(projects::list_projects))
         .route("/projects/:project_id", get(projects::get_project))
+        .route("/projects/:project_id", put(projects::update_project))
+        .route("/projects/:project_id", delete(projects::delete_project))
         // Documents (nested under projects)
         .route(
             "/projects/:project_id/documents",
@@ -50,12 +52,27 @@ pub fn api_router() -> Router<Arc<AppState>> {
             "/projects/:project_id/documents",
             get(documents::list_documents),
         )
+        .route(
+            "/projects/:project_id/documents/upload",
+            post(documents::upload_document),
+        )
+        .route(
+            "/projects/:project_id/documents/:document_id",
+            get(documents::get_document),
+        )
+        .route(
+            "/projects/:project_id/documents/:document_id",
+            delete(documents::delete_document),
+        )
         // Tenders (nested under projects)
         .route(
             "/projects/:project_id/tenders",
             post(tenders::create_tender),
         )
         .route("/projects/:project_id/tenders", get(tenders::list_tenders))
+        .route("/projects/:project_id/tenders/:tender_id", get(tenders::get_tender))
+        .route("/projects/:project_id/tenders/:tender_id", put(tenders::update_tender))
+        .route("/projects/:project_id/tenders/:tender_id", delete(tenders::delete_tender))
         // All tenders (for flat access)
         .route("/tenders", get(tenders::list_all_tenders))
         // Bids (nested under tenders)
