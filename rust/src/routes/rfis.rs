@@ -127,9 +127,9 @@ pub async fn list_rfis(
         SELECT r.id, r.project_id, r.number, r.title, r.description, r.status, r.priority,
                req.first_name || ' ' || req.last_name as requester, r.requester_id,
                asg.first_name || ' ' || asg.last_name as assignee, r.assignee_id,
-               r.category, r.due_date, 
-               COALESCE(r.responses_count, 0) as responses_count,
-               COALESCE(r.attachments_count, 0) as attachments_count,
+               r.category, r.due_date,
+               (SELECT COUNT(*)::int FROM rfi_responses WHERE rfi_id = r.id) as responses_count,
+               0 as attachments_count,
                r.created_at, r.updated_at
         FROM rfis r
         LEFT JOIN profiles req ON r.requester_id = req.id
@@ -196,8 +196,8 @@ pub async fn list_all_rfis(
                req.first_name || ' ' || req.last_name as requester, r.requester_id,
                asg.first_name || ' ' || asg.last_name as assignee, r.assignee_id,
                r.category, r.due_date,
-               COALESCE(r.responses_count, 0) as responses_count,
-               COALESCE(r.attachments_count, 0) as attachments_count,
+               (SELECT COUNT(*)::int FROM rfi_responses WHERE rfi_id = r.id) as responses_count,
+               0 as attachments_count,
                r.created_at, r.updated_at
         FROM rfis r
         JOIN projects p ON r.project_id = p.id
@@ -247,8 +247,8 @@ pub async fn get_rfi(
                req.first_name || ' ' || req.last_name as requester, r.requester_id,
                asg.first_name || ' ' || asg.last_name as assignee, r.assignee_id,
                r.category, r.due_date,
-               COALESCE(r.responses_count, 0) as responses_count,
-               COALESCE(r.attachments_count, 0) as attachments_count,
+               (SELECT COUNT(*)::int FROM rfi_responses WHERE rfi_id = r.id) as responses_count,
+               0 as attachments_count,
                r.created_at, r.updated_at
         FROM rfis r
         LEFT JOIN profiles req ON r.requester_id = req.id
@@ -295,12 +295,11 @@ pub async fn create_rfi(
     let rfi = sqlx::query_as::<_, RFIRow>(
         r#"
         INSERT INTO rfis (project_id, number, title, description, status, priority,
-                         requester_id, assignee_id, category, due_date,
-                         responses_count, attachments_count, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, 'open', $5, $6, $7, $8, $9, 0, 0, NOW(), NOW())
+                         requester_id, assignee_id, category, due_date, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'open', $5, $6, $7, $8, $9, NOW(), NOW())
         RETURNING id, project_id, number, title, description, status, priority,
                   NULL as requester, requester_id, NULL as assignee, assignee_id,
-                  category, due_date, responses_count, attachments_count,
+                  category, due_date, 0 as responses_count, 0 as attachments_count,
                   created_at, updated_at
         "#,
     )
@@ -357,7 +356,9 @@ pub async fn update_rfi(
         WHERE id = $1 AND project_id = $2
         RETURNING id, project_id, number, title, description, status, priority,
                   NULL as requester, requester_id, NULL as assignee, assignee_id,
-                  category, due_date, responses_count, attachments_count,
+                  category, due_date,
+                  (SELECT COUNT(*)::int FROM rfi_responses WHERE rfi_id = rfis.id) as responses_count,
+                  0 as attachments_count,
                   created_at, updated_at
         "#,
     )
@@ -440,13 +441,6 @@ pub async fn add_rfi_response(
     .fetch_one(&state.db)
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-    // Update responses count
-    sqlx::query("UPDATE rfis SET responses_count = responses_count + 1 WHERE id = $1")
-        .bind(rfi_id)
-        .execute(&state.db)
-        .await
-        .ok();
 
     let dto: RFIResponseDTO = response.into();
     Ok((StatusCode::CREATED, Json(DataResponse::new(dto))))
