@@ -53,6 +53,8 @@ pub struct JwksCache {
     issuer: String,
     audience: String,
     ttl: Duration,
+    /// Shared HTTP client (avoids creating new clients on each refresh)
+    http_client: reqwest::Client,
 }
 
 struct JwksCacheInner {
@@ -61,7 +63,13 @@ struct JwksCacheInner {
 }
 
 impl JwksCache {
-    pub fn new(jwks_url: String, issuer: String, audience: String, ttl_seconds: u64) -> Self {
+    pub fn new(
+        jwks_url: String,
+        issuer: String,
+        audience: String,
+        ttl_seconds: u64,
+        http_client: reqwest::Client,
+    ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(JwksCacheInner {
                 keys: HashMap::new(),
@@ -71,6 +79,7 @@ impl JwksCache {
             issuer,
             audience,
             ttl: Duration::from_secs(ttl_seconds),
+            http_client,
         }
     }
 
@@ -134,12 +143,9 @@ impl JwksCache {
 
         tracing::debug!("Fetching JWKS from {}", self.jwks_url);
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("Failed to create HTTP client")?;
-
-        let response = client
+        // Use shared HTTP client instead of creating a new one
+        let response = self
+            .http_client
             .get(&self.jwks_url)
             .send()
             .await

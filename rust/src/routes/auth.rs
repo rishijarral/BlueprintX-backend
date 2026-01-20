@@ -26,8 +26,6 @@ pub async fn sign_up(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SignUpRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let client = reqwest::Client::new();
-    
     // Prepare the Supabase signup request with user metadata
     let supabase_req = serde_json::json!({
         "email": req.email,
@@ -40,7 +38,8 @@ pub async fn sign_up(
         }
     });
 
-    let response = client
+    let response = state
+        .http_client
         .post(format!("{}/auth/v1/signup", state.settings.supabase_url))
         .header("apikey", &state.settings.supabase_anon_key)
         .header("Content-Type", "application/json")
@@ -149,9 +148,8 @@ pub async fn sign_in(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SignInRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let client = reqwest::Client::new();
-
-    let response = client
+    let response = state
+        .http_client
         .post(format!(
             "{}/auth/v1/token?grant_type=password",
             state.settings.supabase_url
@@ -202,10 +200,9 @@ pub async fn sign_out(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let client = reqwest::Client::new();
-
     // Call Supabase logout endpoint
-    let _ = client
+    let _ = state
+        .http_client
         .post(format!("{}/auth/v1/logout", state.settings.supabase_url))
         .header("apikey", &state.settings.supabase_anon_key)
         .header("Authorization", format!("Bearer {}", auth.token()))
@@ -223,10 +220,10 @@ pub async fn get_session(
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
     let claims = auth.claims();
-    
+
     // Fetch additional user data from Supabase
-    let client = reqwest::Client::new();
-    let response = client
+    let response = state
+        .http_client
         .get(format!("{}/auth/v1/user", state.settings.supabase_url))
         .header("apikey", &state.settings.supabase_anon_key)
         .header("Authorization", format!("Bearer {}", auth.token()))
@@ -259,9 +256,8 @@ pub async fn refresh_token(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RefreshTokenRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let client = reqwest::Client::new();
-
-    let response = client
+    let response = state
+        .http_client
         .post(format!(
             "{}/auth/v1/token?grant_type=refresh_token",
             state.settings.supabase_url
