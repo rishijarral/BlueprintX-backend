@@ -66,6 +66,28 @@ class Settings(BaseSettings):
     # Jobs
     job_store_type: Literal["memory", "redis"] = "memory"
 
+    # Job Retry / Dead Letter Queue
+    job_max_retries: int = Field(
+        default=3,
+        description="Maximum number of retry attempts before moving to DLQ",
+    )
+    job_retry_base_delay_seconds: int = Field(
+        default=5,
+        description="Base delay in seconds before first retry (exponential backoff)",
+    )
+    job_retry_max_delay_seconds: int = Field(
+        default=300,
+        description="Maximum delay in seconds between retries",
+    )
+    job_retry_backoff_multiplier: float = Field(
+        default=2.0,
+        description="Multiplier for exponential backoff between retries",
+    )
+    dlq_entry_ttl_days: int = Field(
+        default=30,
+        description="How long to keep DLQ entries (in days)",
+    )
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "console"] = "json"

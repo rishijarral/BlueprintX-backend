@@ -3,7 +3,9 @@
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 
+from app.config import get_settings
 from app.dependencies import (
+    DeadLetterStoreDep,
     GeminiClientDep,
     GeminiEmbeddingsDep,
     JobStoreDep,
@@ -60,8 +62,14 @@ async def create_job(
     - tender_scope_doc: Generate tender scope document
     - qna: Answer a question
 
+    Jobs support automatic retries with exponential backoff on
+    transient failures. Failed jobs are moved to the dead letter
+    queue for later analysis and retry.
+
     Requires internal authentication (X-Internal-Token header).
     """
+    settings = get_settings()
+
     logger.info(
         "Creating job",
         type=request.type,
@@ -73,6 +81,7 @@ async def create_job(
         input_data=request.input,
         project_id=request.project_id,
         document_id=request.document_id,
+        max_retries=settings.job_max_retries,
     )
 
     return JobResponse.from_job(job)
@@ -101,16 +110,16 @@ async def run_job(
     job_id: str,
     _auth: InternalAuth,
     job_store: JobStoreDep,
+    dlq_store: DeadLetterStoreDep,
     gemini: GeminiClientDep,
     embeddings: GeminiEmbeddingsDep,
     vector_store: VectorStoreDep,
 ) -> JobResponse:
     """
-    Run a job synchronously.
+    Run a job synchronously with retry logic.
 
-    Executes the job immediately and returns when complete.
-    For long-running jobs (like document ingestion), consider
-    using async mode (not yet implemented).
+    Executes the job immediately with automatic retries on transient failures.
+    Failed jobs are moved to the dead letter queue after max retries.
 
     Requires internal authentication (X-Internal-Token header).
     """
@@ -125,15 +134,19 @@ async def run_job(
             f"Job cannot be run: status is {job.status}, expected 'queued'"
         )
 
-    # Create runner and execute
+    settings = get_settings()
+
+    # Create runner with DLQ support and execute
     runner = JobRunner(
         job_store=job_store,
         gemini_client=gemini,
         embeddings=embeddings,
         vector_store=vector_store,
+        dlq_store=dlq_store,
+        settings=settings,
     )
 
-    updated_job = await runner.run_job(job_id)
+    updated_job = await runner.run_job_with_immediate_retry(job_id)
     if not updated_job:
         raise NotFoundError(f"Job not found after execution: {job_id}")
 
@@ -146,15 +159,17 @@ async def run_job_async(
     background_tasks: BackgroundTasks,
     _auth: InternalAuth,
     job_store: JobStoreDep,
+    dlq_store: DeadLetterStoreDep,
     gemini: GeminiClientDep,
     embeddings: GeminiEmbeddingsDep,
     vector_store: VectorStoreDep,
 ) -> JobResponse:
     """
-    Run a job asynchronously (in background).
+    Run a job asynchronously (in background) with retry logic.
 
     Returns immediately with job status. Poll GET /jobs/{job_id}
-    to check completion.
+    to check completion. Jobs are automatically retried on transient
+    failures and moved to DLQ after max retries.
 
     Requires internal authentication (X-Internal-Token header).
     """
@@ -169,16 +184,20 @@ async def run_job_async(
             f"Job cannot be run: status is {job.status}, expected 'queued'"
         )
 
-    # Create runner
+    settings = get_settings()
+
+    # Create runner with DLQ support
     runner = JobRunner(
         job_store=job_store,
         gemini_client=gemini,
         embeddings=embeddings,
         vector_store=vector_store,
+        dlq_store=dlq_store,
+        settings=settings,
     )
 
-    # Schedule background execution
-    background_tasks.add_task(runner.run_job, job_id)
+    # Schedule background execution with immediate retries
+    background_tasks.add_task(runner.run_job_with_immediate_retry, job_id)
 
     # Update status to indicate it's been scheduled
     job.status = JobStatus.QUEUED  # Still queued until background picks it up

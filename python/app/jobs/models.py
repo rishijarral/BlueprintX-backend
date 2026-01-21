@@ -38,6 +38,12 @@ class Job(BaseModel):
     error: str | None = None
     progress: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    # Retry tracking
+    attempt_count: int = Field(default=0, ge=0)
+    max_retries: int = Field(default=3, ge=0)
+    last_error: str | None = None  # Error from most recent attempt
+    next_retry_at: datetime | None = None  # When the next retry is scheduled
+
     # Metadata
     project_id: str | None = None
     document_id: str | None = None
@@ -76,6 +82,11 @@ class JobResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    # Retry tracking
+    attempt_count: int
+    max_retries: int
+    last_error: str | None
+    next_retry_at: datetime | None
 
     @classmethod
     def from_job(cls, job: Job) -> "JobResponse":
@@ -93,4 +104,8 @@ class JobResponse(BaseModel):
             created_at=job.created_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
+            attempt_count=job.attempt_count,
+            max_retries=job.max_retries,
+            last_error=job.last_error,
+            next_retry_at=job.next_retry_at,
         )
