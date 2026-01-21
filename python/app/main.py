@@ -16,7 +16,7 @@ from app.errors import (
     unhandled_exception_handler,
 )
 from app.logging import get_logger, set_request_id, setup_logging
-from app.routes import documents, health, jobs, plan, qna, tenders
+from app.routes import dlq, documents, health, jobs, plan, qna, tenders
 
 # Initialize logging
 setup_logging()
@@ -125,6 +125,7 @@ app.include_router(plan.router, prefix="/v1/plan", tags=["Plan Analysis"])
 app.include_router(tenders.router, prefix="/v1/tenders", tags=["Tenders"])
 app.include_router(qna.router, prefix="/v1", tags=["Q&A"])
 app.include_router(jobs.router, prefix="/v1/jobs", tags=["Jobs"])
+app.include_router(dlq.router, prefix="/v1/dlq", tags=["Dead Letter Queue"])
 app.include_router(documents.router, prefix="/v1/documents", tags=["Documents"])
 
 

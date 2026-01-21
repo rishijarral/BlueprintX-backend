@@ -21,6 +21,9 @@ pub struct AppState {
     pub jwks_cache: JwksCache,
     pub cache: RedisCache,
     pub ai_client: AiClient,
+    /// Shared HTTP client for external API calls (Supabase, etc.)
+    /// Reusing a single client avoids expensive per-request allocations
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -30,6 +33,7 @@ impl AppState {
         jwks_cache: JwksCache,
         cache: RedisCache,
         ai_client: AiClient,
+        http_client: reqwest::Client,
     ) -> Arc<Self> {
         Arc::new(Self {
             db,
@@ -37,6 +41,7 @@ impl AppState {
             jwks_cache,
             cache,
             ai_client,
+            http_client,
         })
     }
 }
@@ -46,11 +51,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Build CORS layer
     let cors = build_cors_layer(&state.settings);
 
-    // Build trace layer
+    // Build trace layer (use DEBUG for spans to reduce overhead at INFO level)
     let trace_layer = TraceLayer::new_for_http()
-        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-        .on_request(DefaultOnRequest::new().level(Level::INFO))
-        .on_response(DefaultOnResponse::new().level(Level::INFO));
+        .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
+        .on_request(DefaultOnRequest::new().level(Level::DEBUG))
+        .on_response(DefaultOnResponse::new().level(Level::DEBUG));
 
     // Request ID layers
     let (set_request_id, propagate_request_id) = request_id_layer();

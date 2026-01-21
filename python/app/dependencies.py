@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import Settings, get_settings
 from app.gemini.client import GeminiClient
 from app.gemini.embeddings import GeminiEmbeddings
+from app.jobs.dlq import DeadLetterStore, MemoryDeadLetterStore
 from app.jobs.store import JobStore, MemoryJobStore
 from app.vectorstore.base import VectorStore
 from app.vectorstore.pgvector import PgVectorStore
@@ -64,6 +65,7 @@ async def get_db_session(
 _gemini_client: GeminiClient | None = None
 _gemini_embeddings: GeminiEmbeddings | None = None
 _job_store: JobStore | None = None
+_dlq_store: DeadLetterStore | None = None
 _vector_store: VectorStore | None = None
 
 
@@ -97,6 +99,18 @@ def get_job_store(settings: Settings = Depends(get_settings)) -> JobStore:
     return _job_store
 
 
+def get_dlq_store(settings: Settings = Depends(get_settings)) -> DeadLetterStore:
+    """Get the dead letter queue store singleton."""
+    global _dlq_store
+    if _dlq_store is None:
+        if settings.job_store_type == "memory":
+            _dlq_store = MemoryDeadLetterStore()
+        else:
+            # Future: Redis-backed DLQ
+            _dlq_store = MemoryDeadLetterStore()
+    return _dlq_store
+
+
 async def get_vector_store(
     settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
@@ -123,4 +137,5 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 GeminiClientDep = Annotated[GeminiClient, Depends(get_gemini_client)]
 GeminiEmbeddingsDep = Annotated[GeminiEmbeddings, Depends(get_gemini_embeddings)]
 JobStoreDep = Annotated[JobStore, Depends(get_job_store)]
+DeadLetterStoreDep = Annotated[DeadLetterStore, Depends(get_dlq_store)]
 VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

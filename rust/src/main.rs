@@ -56,12 +56,22 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Create JWKS cache for JWT verification
+    // Create shared HTTP client (reused across all requests to avoid expensive allocations)
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .build()
+        .expect("Failed to create HTTP client");
+    tracing::info!("Shared HTTP client initialized");
+
+    // Create JWKS cache for JWT verification (uses shared HTTP client)
     let jwks_cache = auth::JwksCache::new(
         settings.supabase_jwt_jwks_url.clone(),
         settings.supabase_jwt_issuer.clone(),
         settings.supabase_jwt_audience.clone(),
         settings.jwks_cache_ttl_seconds,
+        http_client.clone(),
     );
 
     // Optionally warm the JWKS cache
@@ -70,7 +80,7 @@ async fn main() -> Result<()> {
     }
 
     // Create application state
-    let state = app::AppState::new(pool, settings.clone(), jwks_cache, cache, ai_client);
+    let state = app::AppState::new(pool, settings.clone(), jwks_cache, cache, ai_client, http_client);
 
     // Build application
     let app = app::create_app(state);

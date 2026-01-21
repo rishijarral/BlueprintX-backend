@@ -28,6 +28,7 @@ class JobStore(ABC):
         project_id: str | None = None,
         document_id: str | None = None,
         created_by: str | None = None,
+        max_retries: int = 3,
     ) -> Job:
         """Create a new job."""
         pass
@@ -45,6 +46,9 @@ class JobStore(ABC):
         progress: float | None = None,
         output: dict[str, Any] | None = None,
         error: str | None = None,
+        attempt_count: int | None = None,
+        last_error: str | None = None,
+        next_retry_at: datetime | None = None,
     ) -> Job | None:
         """Update a job."""
         pass
@@ -120,6 +124,7 @@ class MemoryJobStore(JobStore):
         project_id: str | None = None,
         document_id: str | None = None,
         created_by: str | None = None,
+        max_retries: int = 3,
     ) -> Job:
         """Create a new job."""
         job_id = str(uuid.uuid4())
@@ -132,6 +137,7 @@ class MemoryJobStore(JobStore):
             project_id=project_id,
             document_id=document_id,
             created_by=created_by,
+            max_retries=max_retries,
         )
 
         self._jobs[job_id] = job
@@ -141,6 +147,7 @@ class MemoryJobStore(JobStore):
             job_id=job_id,
             type=job_type,
             project_id=project_id,
+            max_retries=max_retries,
         )
 
         return job
@@ -156,6 +163,9 @@ class MemoryJobStore(JobStore):
         progress: float | None = None,
         output: dict[str, Any] | None = None,
         error: str | None = None,
+        attempt_count: int | None = None,
+        last_error: str | None = None,
+        next_retry_at: datetime | None = None,
     ) -> Job | None:
         """Update a job."""
         job = self._jobs.get(job_id)
@@ -178,11 +188,21 @@ class MemoryJobStore(JobStore):
         if error is not None:
             job.error = error
 
+        if attempt_count is not None:
+            job.attempt_count = attempt_count
+
+        if last_error is not None:
+            job.last_error = last_error
+
+        if next_retry_at is not None:
+            job.next_retry_at = next_retry_at
+
         logger.debug(
             "Job updated",
             job_id=job_id,
             status=job.status,
             progress=job.progress,
+            attempt_count=job.attempt_count,
         )
 
         return job
@@ -288,6 +308,7 @@ class RedisJobStore(JobStore):
         project_id: str | None = None,
         document_id: str | None = None,
         created_by: str | None = None,
+        max_retries: int = 3,
     ) -> Job:
         """Create a new job."""
         job_id = str(uuid.uuid4())
@@ -300,6 +321,7 @@ class RedisJobStore(JobStore):
             project_id=project_id,
             document_id=document_id,
             created_by=created_by,
+            max_retries=max_retries,
         )
 
         # Store job
@@ -328,6 +350,7 @@ class RedisJobStore(JobStore):
             job_id=job_id,
             type=job_type,
             project_id=project_id,
+            max_retries=max_retries,
         )
 
         return job
@@ -346,6 +369,9 @@ class RedisJobStore(JobStore):
         progress: float | None = None,
         output: dict[str, Any] | None = None,
         error: str | None = None,
+        attempt_count: int | None = None,
+        last_error: str | None = None,
+        next_retry_at: datetime | None = None,
     ) -> Job | None:
         """Update a job."""
         job = await self.get(job_id)
@@ -369,6 +395,15 @@ class RedisJobStore(JobStore):
 
         if error is not None:
             job.error = error
+
+        if attempt_count is not None:
+            job.attempt_count = attempt_count
+
+        if last_error is not None:
+            job.last_error = last_error
+
+        if next_retry_at is not None:
+            job.next_retry_at = next_retry_at
 
         # Update job in Redis
         job_key = self._job_key(job_id)
