@@ -19,7 +19,7 @@ use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::{CreateProjectRequest, ProjectResponse, ProjectStatus, UpdateProjectRequest};
 use crate::error::ApiError;
-use crate::services::cache::keys as cache_keys;
+use crate::services::cache::{keys as cache_keys, ttl as cache_ttl};
 
 /// Database row for project
 #[allow(dead_code)]
@@ -84,6 +84,7 @@ impl TryFrom<ProjectRow> for ProjectResponse {
 /// POST /api/projects
 ///
 /// Create a new project. Only GCs can create projects.
+/// Invalidates project list cache on create.
 pub async fn create_project(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -123,33 +124,65 @@ pub async fn create_project(
     .map_err(|e| ApiError::internal(format!("Failed to create project: {}", e)))?;
 
     let response: ProjectResponse = project.try_into()?;
+
+    // Invalidate project list cache and count for this user
+    let _ = state.cache.delete_pattern(&cache_keys::project_list_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::project_count(auth.user_id)).await;
+    // Invalidate dashboard stats
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+
     Ok((StatusCode::CREATED, Json(DataResponse::new(response))))
+}
+
+/// Cached paginated response for projects
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CachedProjectList {
+    data: Vec<ProjectResponse>,
+    total: u64,
 }
 
 /// GET /api/projects
 ///
-/// List projects for the authenticated user.
+/// List projects for the authenticated user. Uses Redis cache for performance.
 pub async fn list_projects(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::info!(
+    let page = pagination.page();
+    let per_page = pagination.per_page();
+
+    tracing::debug!(
         user_id = %auth.user_id,
-        page = pagination.page(),
-        per_page = pagination.per_page(),
+        page = page,
+        per_page = per_page,
         "Listing projects"
     );
+
+    let cache_key = cache_keys::project_list(auth.user_id, page, per_page);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<CachedProjectList>(&cache_key).await {
+        tracing::debug!(user_id = %auth.user_id, "Projects list cache hit");
+        return Ok(Json(Paginated::new(cached.data, &pagination, cached.total)));
+    }
 
     let offset = pagination.offset() as i64;
     let limit = pagination.limit() as i64;
 
-    // Get total count
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE owner_id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    // Get total count (also cached separately for reuse)
+    let count_cache_key = cache_keys::project_count(auth.user_id);
+    let total: i64 = if let Some(cached_count) = state.cache.get::<i64>(&count_cache_key).await {
+        cached_count
+    } else {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE owner_id = $1")
+            .bind(auth.user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let _ = state.cache.set_with_ttl(&count_cache_key, &count, cache_ttl::COUNT).await;
+        count
+    };
 
     // Get projects
     let projects = sqlx::query_as::<_, ProjectRow>(
@@ -173,6 +206,10 @@ pub async fn list_projects(
         .filter_map(|row| row.try_into().ok())
         .collect();
 
+    // Cache the result
+    let cached = CachedProjectList { data: data.clone(), total: total as u64 };
+    let _ = state.cache.set_with_ttl(&cache_key, &cached, cache_ttl::LIST).await;
+
     Ok(Json(Paginated::new(data, &pagination, total as u64)))
 }
 
@@ -184,32 +221,22 @@ pub async fn get_project(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::info!(
+    tracing::debug!(
         user_id = %auth.user_id,
         project_id = %project_id,
         "Getting project"
     );
 
-    let cache_key = cache_keys::project(project_id);
+    // Use a user-specific cache key to avoid ownership check on every cache hit
+    let cache_key = format!("{}:user:{}", cache_keys::project(project_id), auth.user_id);
 
     // Try cache first
     if let Some(cached) = state.cache.get::<ProjectResponse>(&cache_key).await {
-        // Verify ownership even for cached results
-        let owns: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2)"
-        )
-        .bind(project_id)
-        .bind(auth.user_id)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(false);
-
-        if owns {
-            return Ok(Json(DataResponse::new(cached)));
-        }
+        tracing::debug!(project_id = %project_id, "Project cache hit");
+        return Ok(Json(DataResponse::new(cached)));
     }
 
-    // Cache miss or ownership check needed - fetch from DB
+    // Cache miss - fetch from DB with ownership check built-in
     let project = sqlx::query_as::<_, ProjectRow>(
         r#"
         SELECT id, owner_id, name, description, address, city, state, zip_code, status, estimated_value, bid_due_date, start_date, end_date, created_at, updated_at
@@ -226,8 +253,8 @@ pub async fn get_project(
 
     let response: ProjectResponse = project.try_into()?;
 
-    // Cache the result (5 minute TTL)
-    let _ = state.cache.set(&cache_key, &response).await;
+    // Cache the result with user-specific key
+    let _ = state.cache.set_with_ttl(&cache_key, &response, cache_ttl::ENTITY).await;
 
     Ok(Json(DataResponse::new(response)))
 }
@@ -315,16 +342,20 @@ pub async fn update_project(
 
     let response: ProjectResponse = project.try_into()?;
 
-    // Invalidate cache after update
-    let cache_key = cache_keys::project(project_id);
+    // Invalidate all caches related to this project
+    let cache_key = format!("{}:user:{}", cache_keys::project(project_id), auth.user_id);
     let _ = state.cache.delete(&cache_key).await;
+    // Invalidate project lists
+    let _ = state.cache.delete_pattern(&cache_keys::project_list_pattern(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
 
     Ok(Json(DataResponse::new(response)))
 }
 
 /// DELETE /api/projects/:project_id
 ///
-/// Delete a project.
+/// Delete a project. Invalidates all related caches.
 pub async fn delete_project(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -347,11 +378,19 @@ pub async fn delete_project(
         return Err(ApiError::not_found("Project not found"));
     }
 
-    // Invalidate cache after delete
-    let cache_key = cache_keys::project(project_id);
+    // Invalidate all caches related to this project
+    let cache_key = format!("{}:user:{}", cache_keys::project(project_id), auth.user_id);
     let _ = state.cache.delete(&cache_key).await;
-    // Also invalidate project-related caches (documents, tenders, AI results)
+    // Invalidate project-related caches (documents, tenders, AI results)
     let _ = state.cache.delete_pattern(&cache_keys::project_pattern(project_id)).await;
+    // Invalidate project list and count
+    let _ = state.cache.delete_pattern(&cache_keys::project_list_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::project_count(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+    // Invalidate related tender/task caches for this user
+    let _ = state.cache.delete_pattern(&cache_keys::tender_user_pattern(auth.user_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::task_user_pattern(auth.user_id)).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

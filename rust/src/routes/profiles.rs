@@ -1,6 +1,6 @@
 //! Profile routes
 //!
-//! User profile management endpoints.
+//! User profile management endpoints with Redis caching.
 
 use axum::{extract::State, response::IntoResponse, Json};
 use chrono::{DateTime, Utc};
@@ -12,6 +12,7 @@ use crate::auth::RequireAuth;
 use crate::domain::auth::UserType;
 use crate::domain::profiles::{ProfileResponse, UpdateProfileRequest};
 use crate::error::ApiError;
+use crate::services::cache::{keys as cache_keys, ttl as cache_ttl};
 
 /// Database row for profile
 #[derive(Debug, sqlx::FromRow)]
@@ -52,11 +53,20 @@ impl From<ProfileRow> for ProfileResponse {
 
 /// GET /api/profiles/me
 ///
-/// Get the current user's profile.
+/// Get the current user's profile. Uses Redis cache for performance.
 pub async fn get_my_profile(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
+    let cache_key = cache_keys::profile(auth.user_id);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<ProfileResponse>(&cache_key).await {
+        tracing::debug!(user_id = %auth.user_id, "Profile cache hit");
+        return Ok(Json(DataResponse::new(cached)));
+    }
+
+    // Cache miss - fetch from database
     let profile = sqlx::query_as::<_, ProfileRow>(
         r#"
         SELECT id, email, user_type, company_name, first_name, last_name,
@@ -72,12 +82,16 @@ pub async fn get_my_profile(
     .ok_or_else(|| ApiError::not_found("Profile not found"))?;
 
     let response: ProfileResponse = profile.into();
+
+    // Cache the result
+    let _ = state.cache.set_with_ttl(&cache_key, &response, cache_ttl::PROFILE).await;
+
     Ok(Json(DataResponse::new(response)))
 }
 
 /// PUT /api/profiles/me
 ///
-/// Update the current user's profile.
+/// Update the current user's profile. Invalidates cache on update.
 pub async fn update_my_profile(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
@@ -114,5 +128,13 @@ pub async fn update_my_profile(
     .ok_or_else(|| ApiError::not_found("Profile not found"))?;
 
     let response: ProfileResponse = profile.into();
+
+    // Invalidate cache after update
+    let cache_key = cache_keys::profile(auth.user_id);
+    let _ = state.cache.delete(&cache_key).await;
+
+    // Cache the new value
+    let _ = state.cache.set_with_ttl(&cache_key, &response, cache_ttl::PROFILE).await;
+
     Ok(Json(DataResponse::new(response)))
 }

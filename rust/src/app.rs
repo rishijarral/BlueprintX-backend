@@ -78,6 +78,15 @@ fn build_cors_layer(settings: &Settings) -> CorsLayer {
         .filter_map(|origin| origin.parse().ok())
         .collect();
 
+    // In dev mode, use longer preflight cache to reduce OPTIONS requests
+    let max_age = if settings.env.is_dev() {
+        // Cache preflight for 24 hours in development
+        std::time::Duration::from_secs(86400)
+    } else {
+        // 1 hour in production
+        std::time::Duration::from_secs(3600)
+    };
+
     CorsLayer::new()
         .allow_origin(origins)
         .allow_methods(AllowMethods::list([
@@ -93,7 +102,11 @@ fn build_cors_layer(settings: &Settings) -> CorsLayer {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::ACCEPT,
             axum::http::HeaderName::from_static("x-request-id"),
+            // Allow cache-related headers for better performance
+            axum::http::header::CACHE_CONTROL,
+            axum::http::header::IF_NONE_MATCH,
+            axum::http::header::IF_MODIFIED_SINCE,
         ]))
         .allow_credentials(true)
-        .max_age(std::time::Duration::from_secs(3600))
+        .max_age(max_age)
 }

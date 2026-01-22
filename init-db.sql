@@ -779,7 +779,7 @@ BEGIN
     END IF;
     
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'subcontractors' AND column_name = 'secondary_trades') THEN
-        ALTER TABLE subcontractors ADD COLUMN secondary_trades TEXT[];
+        ALTER TABLE subcontractors ADD COLUMN secondary_trades JSONB DEFAULT '[]';
     END IF;
 END $$;
 

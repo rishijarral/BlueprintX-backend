@@ -151,20 +151,135 @@ impl RedisCache {
 /// Cache key builders for consistent key formats.
 ///
 /// These functions provide standardized cache key patterns for all cacheable
-/// entities in the system. Some keys are scaffolded for future use.
+/// entities in the system.
 #[allow(dead_code)]
 pub mod keys {
     use uuid::Uuid;
+
+    // =========================================================================
+    // Profile / User keys
+    // =========================================================================
+    
+    /// User profile cache key
+    pub fn profile(user_id: Uuid) -> String {
+        format!("profile:{}", user_id)
+    }
+
+    /// Pattern to invalidate all user-related caches
+    pub fn user_pattern(user_id: Uuid) -> String {
+        format!("*:user:{}*", user_id)
+    }
+
+    // =========================================================================
+    // Project keys
+    // =========================================================================
 
     /// Project cache key
     pub fn project(project_id: Uuid) -> String {
         format!("project:{}", project_id)
     }
 
-    /// Project list cache key (for a user)
-    pub fn project_list(user_id: Uuid, page: u32) -> String {
-        format!("projects:user:{}:page:{}", user_id, page)
+    /// Project list cache key (for a user with pagination)
+    pub fn project_list(user_id: Uuid, page: u32, per_page: u32) -> String {
+        format!("projects:user:{}:p{}:pp{}", user_id, page, per_page)
     }
+
+    /// Project count cache key (for a user)
+    pub fn project_count(user_id: Uuid) -> String {
+        format!("projects:user:{}:count", user_id)
+    }
+
+    /// Pattern to invalidate all project lists for a user
+    pub fn project_list_pattern(user_id: Uuid) -> String {
+        format!("projects:user:{}:*", user_id)
+    }
+
+    /// Pattern to invalidate all project-related caches
+    pub fn project_pattern(project_id: Uuid) -> String {
+        format!("*:project:{}*", project_id)
+    }
+
+    // =========================================================================
+    // Tender keys
+    // =========================================================================
+
+    /// Tender cache key
+    pub fn tender(tender_id: Uuid) -> String {
+        format!("tender:{}", tender_id)
+    }
+
+    /// Tender list cache key (for a project)
+    pub fn tender_list(project_id: Uuid, page: u32, per_page: u32) -> String {
+        format!("tenders:project:{}:p{}:pp{}", project_id, page, per_page)
+    }
+
+    /// All tenders for a user cache key
+    pub fn tender_list_all(user_id: Uuid, page: u32, per_page: u32) -> String {
+        format!("tenders:user:{}:p{}:pp{}", user_id, page, per_page)
+    }
+
+    /// Tender count for a project
+    pub fn tender_count(project_id: Uuid) -> String {
+        format!("tenders:project:{}:count", project_id)
+    }
+
+    /// Tender count for all user projects
+    pub fn tender_count_all(user_id: Uuid) -> String {
+        format!("tenders:user:{}:count", user_id)
+    }
+
+    /// Pattern to invalidate tender lists for a project
+    pub fn tender_list_pattern(project_id: Uuid) -> String {
+        format!("tenders:project:{}:*", project_id)
+    }
+
+    /// Pattern to invalidate all tenders for a user
+    pub fn tender_user_pattern(user_id: Uuid) -> String {
+        format!("tenders:user:{}:*", user_id)
+    }
+
+    // =========================================================================
+    // Task keys
+    // =========================================================================
+
+    /// Task cache key
+    pub fn task(task_id: Uuid) -> String {
+        format!("task:{}", task_id)
+    }
+
+    /// Task list cache key (for a project)
+    pub fn task_list(project_id: Uuid, page: u32, per_page: u32) -> String {
+        format!("tasks:project:{}:p{}:pp{}", project_id, page, per_page)
+    }
+
+    /// All tasks for a user cache key
+    pub fn task_list_all(user_id: Uuid, page: u32, per_page: u32) -> String {
+        format!("tasks:user:{}:p{}:pp{}", user_id, page, per_page)
+    }
+
+    /// Task count for a project
+    pub fn task_count(project_id: Uuid) -> String {
+        format!("tasks:project:{}:count", project_id)
+    }
+
+    /// Task count for all user projects
+    pub fn task_count_all(user_id: Uuid) -> String {
+        format!("tasks:user:{}:count", user_id)
+    }
+
+    /// Pattern to invalidate task lists for a project
+    pub fn task_list_pattern(project_id: Uuid) -> String {
+        format!("tasks:project:{}:*", project_id)
+    }
+
+    /// Pattern to invalidate all tasks for a user
+    pub fn task_user_pattern(user_id: Uuid) -> String {
+        format!("tasks:user:{}:*", user_id)
+    }
+
+    // =========================================================================
+    // Document keys
+    // =========================================================================
 
     /// Document cache key
     pub fn document(document_id: Uuid) -> String {
@@ -176,15 +291,9 @@ pub mod keys {
         format!("documents:project:{}", project_id)
     }
 
-    /// Tender cache key
-    pub fn tender(tender_id: Uuid) -> String {
-        format!("tender:{}", tender_id)
-    }
-
-    /// Tender list cache key
-    pub fn tender_list(project_id: Uuid) -> String {
-        format!("tenders:project:{}", project_id)
-    }
+    // =========================================================================
+    // Bid keys
+    // =========================================================================
 
     /// Bid cache key
     pub fn bid(bid_id: Uuid) -> String {
@@ -195,6 +304,10 @@ pub mod keys {
     pub fn bid_list(tender_id: Uuid) -> String {
         format!("bids:tender:{}", tender_id)
     }
+
+    // =========================================================================
+    // AI keys
+    // =========================================================================
 
     /// Plan summary cache key
     pub fn plan_summary(project_id: Uuid) -> String {
@@ -211,13 +324,45 @@ pub mod keys {
         format!("ai:qna:project:{}:{}", project_id, question_hash)
     }
 
-    /// Pattern to invalidate all project-related caches
-    pub fn project_pattern(project_id: Uuid) -> String {
-        format!("*:project:{}*", project_id)
-    }
-
     /// Pattern to invalidate all AI caches for a project
     pub fn ai_pattern(project_id: Uuid) -> String {
         format!("ai:*:project:{}*", project_id)
     }
+
+    // =========================================================================
+    // Dashboard / Stats keys
+    // =========================================================================
+
+    /// Dashboard stats cache key for a user
+    pub fn dashboard_stats(user_id: Uuid) -> String {
+        format!("dashboard:user:{}", user_id)
+    }
+
+    /// Pattern to invalidate dashboard for a user
+    pub fn dashboard_pattern(user_id: Uuid) -> String {
+        format!("dashboard:user:{}*", user_id)
+    }
+}
+
+/// Cache TTL constants in seconds
+pub mod ttl {
+    use std::time::Duration;
+
+    /// Profile data - 5 minutes (changes infrequently)
+    pub const PROFILE: Duration = Duration::from_secs(300);
+    
+    /// List data - 2 minutes (balances freshness vs performance)
+    pub const LIST: Duration = Duration::from_secs(120);
+    
+    /// Count queries - 1 minute (used for pagination)
+    pub const COUNT: Duration = Duration::from_secs(60);
+    
+    /// Individual entity - 5 minutes
+    pub const ENTITY: Duration = Duration::from_secs(300);
+    
+    /// Dashboard stats - 30 seconds (needs to be relatively fresh)
+    pub const DASHBOARD: Duration = Duration::from_secs(30);
+    
+    /// AI responses - 1 hour (expensive to compute, rarely changes)
+    pub const AI: Duration = Duration::from_secs(3600);
 }

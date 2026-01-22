@@ -209,7 +209,7 @@ pub async fn list_marketplace_subcontractors(
         r#"
         SELECT 
             s.id, s.profile_id, s.name, s.trade,
-            COALESCE(s.secondary_trades, '[]'::jsonb) as secondary_trades,
+            COALESCE(to_jsonb(s.secondary_trades), '[]'::jsonb) as secondary_trades,
             s.headline, s.company_description, s.rating, s.review_count,
             s.location, s.contact_email, s.contact_phone, s.website,
             s.projects_completed, s.average_bid_value, s.response_time, s.response_time_hours,
@@ -323,7 +323,7 @@ pub async fn get_marketplace_subcontractor(
         r#"
         SELECT 
             s.id, s.profile_id, s.name, s.trade,
-            COALESCE(s.secondary_trades, '[]'::jsonb) as secondary_trades,
+            COALESCE(to_jsonb(s.secondary_trades), '[]'::jsonb) as secondary_trades,
             s.headline, s.company_description, s.rating, s.review_count,
             s.location, s.contact_email, s.contact_phone, s.website,
             s.projects_completed, s.average_bid_value, s.response_time, s.response_time_hours,
@@ -432,7 +432,7 @@ pub async fn get_my_marketplace_profile(
         r#"
         SELECT 
             s.id, s.profile_id, s.name, s.trade,
-            COALESCE(s.secondary_trades, '[]'::jsonb) as secondary_trades,
+            COALESCE(to_jsonb(s.secondary_trades), '[]'::jsonb) as secondary_trades,
             s.headline, s.company_description, s.rating, s.review_count,
             s.location, s.contact_email, s.contact_phone, s.website,
             s.projects_completed, s.average_bid_value, s.response_time, s.response_time_hours,

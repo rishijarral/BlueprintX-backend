@@ -45,7 +45,7 @@ pub struct UpdateProfileRequest {
 }
 
 /// Response DTO for profile
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileResponse {
     pub id: Uuid,
     pub email: String,

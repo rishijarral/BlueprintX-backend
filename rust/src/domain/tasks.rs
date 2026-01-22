@@ -95,7 +95,7 @@ pub struct UpdateTaskRequest {
 }
 
 /// Response DTO for task
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskResponse {
     pub id: Uuid,
     pub project_id: Uuid,

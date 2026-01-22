@@ -42,10 +42,18 @@ impl AiClient {
     pub fn new(base_url: &str, token: &str, timeout_seconds: u64) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(timeout_seconds))
+            // Connection timeout (time to establish TCP connection)
+            .connect_timeout(Duration::from_secs(5))
+            // Optimize for local service communication
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(300))
+            // TCP optimizations for localhost
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true)
             .build()
             .context("Failed to create HTTP client")?;
 
-        tracing::info!(base_url = base_url, "AI client initialized");
+        tracing::info!(base_url = base_url, timeout_seconds = timeout_seconds, "AI client initialized");
 
         Ok(Self {
             client,

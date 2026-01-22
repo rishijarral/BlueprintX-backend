@@ -57,13 +57,23 @@ async fn main() -> Result<()> {
     });
 
     // Create shared HTTP client (reused across all requests to avoid expensive allocations)
+    // Optimized for local development with larger connection pool and TCP keepalive
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .pool_max_idle_per_host(10)
-        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        // Increase connection pool for localhost development
+        .pool_max_idle_per_host(if settings.env.is_dev() { 20 } else { 10 })
+        .pool_idle_timeout(std::time::Duration::from_secs(if settings.env.is_dev() { 300 } else { 90 }))
+        // Enable TCP keepalive to prevent connection drops on localhost
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        // Enable TCP nodelay for faster small requests (reduces latency for API calls)
+        .tcp_nodelay(true)
         .build()
         .expect("Failed to create HTTP client");
-    tracing::info!("Shared HTTP client initialized");
+    tracing::info!(
+        env = ?settings.env,
+        pool_size = if settings.env.is_dev() { 20 } else { 10 },
+        "Shared HTTP client initialized"
+    );
 
     // Create JWKS cache for JWT verification (uses shared HTTP client)
     let jwks_cache = auth::JwksCache::new(

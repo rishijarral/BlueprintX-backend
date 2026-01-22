@@ -1,6 +1,6 @@
 //! Tender routes
 //!
-//! CRUD operations for tender packages (bid invitations).
+//! CRUD operations for tender packages (bid invitations) with Redis caching.
 
 use axum::{
     extract::{Path, Query, State},
@@ -19,6 +19,7 @@ use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::tenders::{CreateTenderRequest, TradeCategory, UpdateTenderRequest};
 use crate::error::ApiError;
+use crate::services::cache::{keys as cache_keys, ttl as cache_ttl};
 
 /// Database row for tender with computed bid counts
 #[derive(Debug, sqlx::FromRow)]
@@ -40,7 +41,7 @@ struct TenderRow {
 }
 
 /// Response DTO for tender
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TenderResponse {
     id: Uuid,
     project_id: Uuid,
@@ -57,6 +58,13 @@ pub struct TenderResponse {
     priority: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+}
+
+/// Cached paginated response for tenders
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CachedTenderList {
+    data: Vec<TenderResponse>,
+    total: u64,
 }
 
 impl From<TenderRow> for TenderResponse {
@@ -134,7 +142,7 @@ fn trade_category_to_string(cat: &TradeCategory) -> &'static str {
 
 /// POST /api/projects/:project_id/tenders
 ///
-/// Create a new tender package for a project.
+/// Create a new tender package for a project. Invalidates tender list caches.
 pub async fn create_tender(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -177,12 +185,21 @@ pub async fn create_tender(
     .map_err(|e| ApiError::internal(format!("Failed to create tender: {}", e)))?;
 
     let response: TenderResponse = tender.into();
+
+    // Invalidate tender list caches
+    let _ = state.cache.delete_pattern(&cache_keys::tender_list_pattern(project_id)).await;
+    let _ = state.cache.delete(&cache_keys::tender_count(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::tender_user_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::tender_count_all(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+
     Ok((StatusCode::CREATED, Json(DataResponse::new(response))))
 }
 
 /// GET /api/projects/:project_id/tenders
 ///
-/// List tenders for a project.
+/// List tenders for a project. Uses Redis cache for performance.
 pub async fn list_tenders(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -191,15 +208,32 @@ pub async fn list_tenders(
 ) -> Result<impl IntoResponse, ApiError> {
     verify_project_ownership(&state, project_id, auth.user_id).await?;
 
+    let page = pagination.page();
+    let per_page = pagination.per_page();
+    let cache_key = cache_keys::tender_list(project_id, page, per_page);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<CachedTenderList>(&cache_key).await {
+        tracing::debug!(project_id = %project_id, "Tenders list cache hit");
+        return Ok(Json(Paginated::new(cached.data, &pagination, cached.total)));
+    }
+
     let offset = pagination.offset() as i64;
     let limit = pagination.limit() as i64;
 
-    // Get total count
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenders WHERE project_id = $1")
-        .bind(project_id)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    // Get total count (with caching)
+    let count_cache_key = cache_keys::tender_count(project_id);
+    let total: i64 = if let Some(cached_count) = state.cache.get::<i64>(&count_cache_key).await {
+        cached_count
+    } else {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenders WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let _ = state.cache.set_with_ttl(&count_cache_key, &count, cache_ttl::COUNT).await;
+        count
+    };
 
     // Get tenders with bid count
     let tenders = sqlx::query_as::<_, TenderRow>(
@@ -222,32 +256,54 @@ pub async fn list_tenders(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let data: Vec<TenderResponse> = tenders.into_iter().map(Into::into).collect();
+
+    // Cache the result
+    let cached = CachedTenderList { data: data.clone(), total: total as u64 };
+    let _ = state.cache.set_with_ttl(&cache_key, &cached, cache_ttl::LIST).await;
+
     Ok(Json(Paginated::new(data, &pagination, total as u64)))
 }
 
 /// GET /api/tenders
 ///
-/// List all tenders for the current user across all projects.
+/// List all tenders for the current user across all projects. Uses Redis cache.
 pub async fn list_all_tenders(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let page = pagination.page();
+    let per_page = pagination.per_page();
+    let cache_key = cache_keys::tender_list_all(auth.user_id, page, per_page);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<CachedTenderList>(&cache_key).await {
+        tracing::debug!(user_id = %auth.user_id, "All tenders list cache hit");
+        return Ok(Json(Paginated::new(cached.data, &pagination, cached.total)));
+    }
+
     let offset = pagination.offset() as i64;
     let limit = pagination.limit() as i64;
 
-    // Get total count for projects owned by user
-    let total: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*) FROM tenders t
-        JOIN projects p ON t.project_id = p.id
-        WHERE p.owner_id = $1
-        "#,
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    // Get total count (with caching)
+    let count_cache_key = cache_keys::tender_count_all(auth.user_id);
+    let total: i64 = if let Some(cached_count) = state.cache.get::<i64>(&count_cache_key).await {
+        cached_count
+    } else {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM tenders t
+            JOIN projects p ON t.project_id = p.id
+            WHERE p.owner_id = $1
+            "#,
+        )
+        .bind(auth.user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let _ = state.cache.set_with_ttl(&count_cache_key, &count, cache_ttl::COUNT).await;
+        count
+    };
 
     // Get tenders with bid count
     let tenders = sqlx::query_as::<_, TenderRow>(
@@ -271,6 +327,11 @@ pub async fn list_all_tenders(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let data: Vec<TenderResponse> = tenders.into_iter().map(Into::into).collect();
+
+    // Cache the result
+    let cached = CachedTenderList { data: data.clone(), total: total as u64 };
+    let _ = state.cache.set_with_ttl(&cache_key, &cached, cache_ttl::LIST).await;
+
     Ok(Json(Paginated::new(data, &pagination, total as u64)))
 }
 
@@ -372,12 +433,19 @@ pub async fn update_tender(
     .map_err(|e| ApiError::internal(format!("Failed to update tender: {}", e)))?;
 
     let response: TenderResponse = tender.into();
+
+    // Invalidate tender list caches
+    let _ = state.cache.delete_pattern(&cache_keys::tender_list_pattern(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::tender_user_pattern(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+
     Ok(Json(DataResponse::new(response)))
 }
 
 /// DELETE /api/projects/:project_id/tenders/:tender_id
 ///
-/// Delete a tender.
+/// Delete a tender. Invalidates tender list caches.
 pub async fn delete_tender(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -395,6 +463,14 @@ pub async fn delete_tender(
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Tender not found"));
     }
+
+    // Invalidate tender list caches
+    let _ = state.cache.delete_pattern(&cache_keys::tender_list_pattern(project_id)).await;
+    let _ = state.cache.delete(&cache_keys::tender_count(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::tender_user_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::tender_count_all(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

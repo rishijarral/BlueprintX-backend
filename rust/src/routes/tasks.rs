@@ -1,6 +1,6 @@
 //! Task routes
 //!
-//! Project task management endpoints.
+//! Project task management endpoints with Redis caching.
 
 use axum::{
     extract::{Path, Query, State},
@@ -20,6 +20,7 @@ use crate::domain::tasks::{
     CreateTaskRequest, TaskPriority, TaskResponse, TaskStatus, UpdateTaskRequest,
 };
 use crate::error::ApiError;
+use crate::services::cache::{keys as cache_keys, ttl as cache_ttl};
 
 /// Database row for task
 #[derive(Debug, sqlx::FromRow)]
@@ -68,9 +69,16 @@ impl From<TaskRow> for TaskResponse {
     }
 }
 
+/// Cached paginated response for tasks
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CachedTaskList {
+    data: Vec<TaskResponse>,
+    total: u64,
+}
+
 /// GET /api/projects/:project_id/tasks
 ///
-/// List tasks for a project.
+/// List tasks for a project. Uses Redis cache for performance.
 pub async fn list_tasks(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<Uuid>,
@@ -79,16 +87,43 @@ pub async fn list_tasks(
 ) -> Result<impl IntoResponse, ApiError> {
     let page = pagination.page.unwrap_or(1).max(1);
     let per_page = pagination.per_page.unwrap_or(20).min(100);
+    let cache_key = cache_keys::task_list(project_id, page, per_page);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<CachedTaskList>(&cache_key).await {
+        tracing::debug!(project_id = %project_id, "Tasks list cache hit");
+        let total_pages = ((cached.total as f64) / (per_page as f64)).ceil() as u32;
+        let response = Paginated {
+            data: cached.data,
+            pagination: PaginationMeta {
+                page,
+                per_page,
+                total_items: cached.total,
+                total_pages,
+                has_next: page < total_pages,
+                has_prev: page > 1,
+            },
+        };
+        return Ok(Json(response));
+    }
+
     let offset = ((page - 1) * per_page) as i64;
 
-    // Get total count
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tasks WHERE project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    // Get total count (with caching)
+    let count_cache_key = cache_keys::task_count(project_id);
+    let total: i64 = if let Some(cached_count) = state.cache.get::<i64>(&count_cache_key).await {
+        cached_count
+    } else {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tasks WHERE project_id = $1",
+        )
+        .bind(project_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let _ = state.cache.set_with_ttl(&count_cache_key, &count, cache_ttl::COUNT).await;
+        count
+    };
 
     // Get tasks
     let tasks = sqlx::query_as::<_, TaskRow>(
@@ -113,6 +148,10 @@ pub async fn list_tasks(
     let data: Vec<TaskResponse> = tasks.into_iter().map(Into::into).collect();
     let total_pages = ((total as f64) / (per_page as f64)).ceil() as u32;
 
+    // Cache the result
+    let cached = CachedTaskList { data: data.clone(), total: total as u64 };
+    let _ = state.cache.set_with_ttl(&cache_key, &cached, cache_ttl::LIST).await;
+
     let response = Paginated {
         data,
         pagination: PaginationMeta {
@@ -130,7 +169,7 @@ pub async fn list_tasks(
 
 /// GET /api/tasks
 ///
-/// List all tasks for the current user across all projects.
+/// List all tasks for the current user across all projects. Uses Redis cache.
 pub async fn list_all_tasks(
     State(state): State<Arc<AppState>>,
     Query(pagination): Query<PaginationParams>,
@@ -138,20 +177,47 @@ pub async fn list_all_tasks(
 ) -> Result<impl IntoResponse, ApiError> {
     let page = pagination.page.unwrap_or(1).max(1);
     let per_page = pagination.per_page.unwrap_or(20).min(100);
+    let cache_key = cache_keys::task_list_all(auth.user_id, page, per_page);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<CachedTaskList>(&cache_key).await {
+        tracing::debug!(user_id = %auth.user_id, "All tasks list cache hit");
+        let total_pages = ((cached.total as f64) / (per_page as f64)).ceil() as u32;
+        let response = Paginated {
+            data: cached.data,
+            pagination: PaginationMeta {
+                page,
+                per_page,
+                total_items: cached.total,
+                total_pages,
+                has_next: page < total_pages,
+                has_prev: page > 1,
+            },
+        };
+        return Ok(Json(response));
+    }
+
     let offset = ((page - 1) * per_page) as i64;
 
-    // Get total count for projects owned by user
-    let total: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*) FROM tasks t
-        JOIN projects pr ON t.project_id = pr.id
-        WHERE pr.owner_id = $1
-        "#,
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    // Get total count (with caching)
+    let count_cache_key = cache_keys::task_count_all(auth.user_id);
+    let total: i64 = if let Some(cached_count) = state.cache.get::<i64>(&count_cache_key).await {
+        cached_count
+    } else {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM tasks t
+            JOIN projects pr ON t.project_id = pr.id
+            WHERE pr.owner_id = $1
+            "#,
+        )
+        .bind(auth.user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+        let _ = state.cache.set_with_ttl(&count_cache_key, &count, cache_ttl::COUNT).await;
+        count
+    };
 
     // Get tasks
     let tasks = sqlx::query_as::<_, TaskRow>(
@@ -176,6 +242,10 @@ pub async fn list_all_tasks(
 
     let data: Vec<TaskResponse> = tasks.into_iter().map(Into::into).collect();
     let total_pages = ((total as f64) / (per_page as f64)).ceil() as u32;
+
+    // Cache the result
+    let cached = CachedTaskList { data: data.clone(), total: total as u64 };
+    let _ = state.cache.set_with_ttl(&cache_key, &cached, cache_ttl::LIST).await;
 
     let response = Paginated {
         data,
@@ -223,11 +293,11 @@ pub async fn get_task(
 
 /// POST /api/projects/:project_id/tasks
 ///
-/// Create a new task.
+/// Create a new task. Invalidates task list caches.
 pub async fn create_task(
     State(state): State<Arc<AppState>>,
     Path(project_id): Path<Uuid>,
-    _auth: RequireAuth,
+    auth: RequireAuth,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status = match req.status {
@@ -266,16 +336,25 @@ pub async fn create_task(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let response: TaskResponse = task.into();
+
+    // Invalidate task list caches
+    let _ = state.cache.delete_pattern(&cache_keys::task_list_pattern(project_id)).await;
+    let _ = state.cache.delete(&cache_keys::task_count(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::task_user_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::task_count_all(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+
     Ok((StatusCode::CREATED, Json(DataResponse::new(response))))
 }
 
 /// PUT /api/projects/:project_id/tasks/:task_id
 ///
-/// Update a task.
+/// Update a task. Invalidates task list caches.
 pub async fn update_task(
     State(state): State<Arc<AppState>>,
     Path((project_id, task_id)): Path<(Uuid, Uuid)>,
-    _auth: RequireAuth,
+    auth: RequireAuth,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status = req.status.map(|s| match s {
@@ -325,16 +404,23 @@ pub async fn update_task(
     .ok_or_else(|| ApiError::not_found("Task not found"))?;
 
     let response: TaskResponse = task.into();
+
+    // Invalidate task list caches
+    let _ = state.cache.delete_pattern(&cache_keys::task_list_pattern(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::task_user_pattern(auth.user_id)).await;
+    // Invalidate dashboard (task status changes affect stats)
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
+
     Ok(Json(DataResponse::new(response)))
 }
 
 /// DELETE /api/projects/:project_id/tasks/:task_id
 ///
-/// Delete a task.
+/// Delete a task. Invalidates task list caches.
 pub async fn delete_task(
     State(state): State<Arc<AppState>>,
     Path((project_id, task_id)): Path<(Uuid, Uuid)>,
-    _auth: RequireAuth,
+    auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = sqlx::query("DELETE FROM tasks WHERE id = $1 AND project_id = $2")
         .bind(task_id)
@@ -346,6 +432,14 @@ pub async fn delete_task(
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Task not found"));
     }
+
+    // Invalidate task list caches
+    let _ = state.cache.delete_pattern(&cache_keys::task_list_pattern(project_id)).await;
+    let _ = state.cache.delete(&cache_keys::task_count(project_id)).await;
+    let _ = state.cache.delete_pattern(&cache_keys::task_user_pattern(auth.user_id)).await;
+    let _ = state.cache.delete(&cache_keys::task_count_all(auth.user_id)).await;
+    // Invalidate dashboard
+    let _ = state.cache.delete(&cache_keys::dashboard_stats(auth.user_id)).await;
 
     Ok((
         StatusCode::OK,
