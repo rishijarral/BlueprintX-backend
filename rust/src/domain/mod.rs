@@ -5,10 +5,16 @@
 
 #![allow(dead_code)]
 
+pub mod admin;
 pub mod ai;
 pub mod auth;
 pub mod bids;
 pub mod documents;
+pub mod extraction;
+pub mod hiring;
+pub mod jobs;
+pub mod marketplace;
+pub mod notifications;
 pub mod profiles;
 pub mod projects;
 pub mod rfis;

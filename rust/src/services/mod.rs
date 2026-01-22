@@ -1,9 +1,11 @@
 //! Service layer modules for external integrations.
 //!
-//! Contains clients for Redis caching and AI service communication.
+//! Contains clients for Redis caching, AI service communication, and notification services.
 
 pub mod ai_client;
 pub mod cache;
+pub mod notifications;
 
 pub use ai_client::AiClient;
 pub use cache::RedisCache;
+pub use notifications::*;

@@ -182,6 +182,33 @@ pub async fn sign_in(
         ApiError::internal(format!("Failed to parse auth response: {}", e))
     })?;
 
+    // Ensure profile exists (handles users created directly in Supabase)
+    let user_id: uuid::Uuid = auth_response.user.id.parse().map_err(|_| {
+        ApiError::internal("Invalid user ID from auth service")
+    })?;
+
+    let user_type_str = auth_response
+        .user
+        .user_metadata
+        .as_ref()
+        .and_then(|m| m.get("user_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("gc");
+
+    sqlx::query(
+        r#"
+        INSERT INTO profiles (id, email, user_type, created_at, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
+        "#
+    )
+    .bind(user_id)
+    .bind(&req.email)
+    .bind(user_type_str)
+    .execute(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to ensure profile: {}", e)))?;
+
     let user: User = auth_response.user.into();
     let response = AuthResponse {
         access_token: auth_response.access_token,

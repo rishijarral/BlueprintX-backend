@@ -1,9 +1,12 @@
 """LangGraph pipeline for document ingestion: PDF -> OCR -> Chunk -> Embed -> Store."""
 
-from typing import Any, TypedDict
+import json
+import time
+from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from app.cache.redis import RedisCache
 from app.documents.chunker import Chunker, ChunkingStrategy, TextChunk
 from app.documents.pdf import PageImage, PDFMetadata, PDFProcessor
 from app.gemini.client import GeminiClient
@@ -11,9 +14,21 @@ from app.gemini.embeddings import GeminiEmbeddings
 from app.gemini.schemas import VisionInput, VisionOCRResult
 from app.logging import get_logger
 from app.prompts.vision_ocr import build_vision_ocr_prompt
+from app.schemas.extraction import (
+    JobCompletedEvent,
+    JobFailedEvent,
+    JobStatusChangedEvent,
+    StepCompletedEvent,
+    StepFailedEvent,
+    StepProgressEvent,
+    StepStartedEvent,
+)
 from app.vectorstore.base import Document, VectorStore
 
 logger = get_logger(__name__)
+
+# Redis channel for publishing progress events
+PROGRESS_CHANNEL_PREFIX = "job:progress:"
 
 
 class IngestState(TypedDict):
@@ -57,13 +72,38 @@ class IngestPipeline:
         vector_store: VectorStore,
         pdf_processor: PDFProcessor | None = None,
         chunker: Chunker | None = None,
+        redis_cache: RedisCache | None = None,
+        progress_callback: Callable[[Any], None] | None = None,
     ) -> None:
         self.gemini = gemini_client
         self.embeddings = embeddings
         self.vector_store = vector_store
         self.pdf_processor = pdf_processor or PDFProcessor()
         self.chunker = chunker or Chunker()
+        self.redis_cache = redis_cache
+        self.progress_callback = progress_callback
+        self._start_time: float | None = None
         self.graph = self._build_graph()
+
+    async def _emit_event(self, job_id: str, event: Any) -> None:
+        """Emit a progress event via Redis pub/sub and callback."""
+        event_data = event.model_dump_json() if hasattr(event, "model_dump_json") else json.dumps(event)
+
+        # Publish to Redis if available
+        if self.redis_cache and self.redis_cache.is_connected:
+            try:
+                channel = f"{PROGRESS_CHANNEL_PREFIX}{job_id}"
+                await self.redis_cache._client.publish(channel, event_data)
+                logger.debug("Published progress event", job_id=job_id, event_type=getattr(event, "type", "unknown"))
+            except Exception as e:
+                logger.warning("Failed to publish progress event", error=str(e))
+
+        # Also call callback if provided
+        if self.progress_callback:
+            try:
+                self.progress_callback(event)
+            except Exception as e:
+                logger.warning("Progress callback failed", error=str(e))
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph state machine."""
@@ -114,10 +154,24 @@ class IngestPipeline:
 
     async def _extract_pages(self, state: IngestState) -> dict[str, Any]:
         """Extract pages from PDF as images."""
+        job_id = state["job_id"]
+        start_time = time.time()
+
         logger.info(
             "Extracting pages from PDF",
-            job_id=state["job_id"],
+            job_id=job_id,
             document_id=state["document_id"],
+        )
+
+        # Emit step started
+        await self._emit_event(
+            job_id,
+            StepStartedEvent(
+                job_id=job_id,
+                step_key="parsing",
+                step_name="PDF Parsing",
+                step_order=1,
+            ),
         )
 
         try:
@@ -130,15 +184,48 @@ class IngestPipeline:
                     state["file_bytes"]
                 )
             else:
+                await self._emit_event(
+                    job_id,
+                    StepFailedEvent(
+                        job_id=job_id,
+                        step_key="parsing",
+                        error="No file path or bytes provided",
+                        can_retry=False,
+                    ),
+                )
                 return {
                     "status": "failed",
                     "error": "No file path or bytes provided",
                 }
 
+            duration_ms = int((time.time() - start_time) * 1000)
+
             logger.info(
                 "Pages extracted",
-                job_id=state["job_id"],
+                job_id=job_id,
                 page_count=len(page_images),
+                duration_ms=duration_ms,
+            )
+
+            # Emit step completed
+            await self._emit_event(
+                job_id,
+                StepCompletedEvent(
+                    job_id=job_id,
+                    step_key="parsing",
+                    duration_ms=duration_ms,
+                ),
+            )
+
+            # Emit job status update
+            await self._emit_event(
+                job_id,
+                JobStatusChangedEvent(
+                    job_id=job_id,
+                    status="running",
+                    progress=0.2,
+                    current_step="ocr",
+                ),
             )
 
             return {
@@ -150,6 +237,15 @@ class IngestPipeline:
 
         except Exception as e:
             logger.error("Page extraction failed", error=str(e))
+            await self._emit_event(
+                job_id,
+                StepFailedEvent(
+                    job_id=job_id,
+                    step_key="parsing",
+                    error=str(e),
+                    can_retry=True,
+                ),
+            )
             return {
                 "status": "failed",
                 "error": f"Page extraction failed: {str(e)}",
@@ -165,10 +261,24 @@ class IngestPipeline:
 
     async def _ocr_pages(self, state: IngestState) -> dict[str, Any]:
         """Run Gemini Vision OCR on each page."""
+        job_id = state["job_id"]
+        start_time = time.time()
+
         logger.info(
             "Running OCR on pages",
-            job_id=state["job_id"],
+            job_id=job_id,
             page_count=len(state["page_images"]),
+        )
+
+        # Emit step started
+        await self._emit_event(
+            job_id,
+            StepStartedEvent(
+                job_id=job_id,
+                step_key="ocr",
+                step_name="Vision OCR",
+                step_order=2,
+            ),
         )
 
         ocr_results = []
@@ -211,13 +321,37 @@ class IngestPipeline:
                     )
                 )
 
-            # Update progress
-            progress = 0.2 + (0.5 * (i + 1) / total_pages)
+            # Emit progress update
+            progress = (i + 1) / total_pages
+            await self._emit_event(
+                job_id,
+                StepProgressEvent(
+                    job_id=job_id,
+                    step_key="ocr",
+                    progress=progress,
+                    items_processed=i + 1,
+                    items_total=total_pages,
+                    message=f"Processing page {page_image.page_number}",
+                ),
+            )
+
+        duration_ms = int((time.time() - start_time) * 1000)
 
         logger.info(
             "OCR complete",
-            job_id=state["job_id"],
+            job_id=job_id,
             pages_processed=len(ocr_results),
+            duration_ms=duration_ms,
+        )
+
+        # Emit step completed
+        await self._emit_event(
+            job_id,
+            StepCompletedEvent(
+                job_id=job_id,
+                step_key="ocr",
+                duration_ms=duration_ms,
+            ),
         )
 
         return {
@@ -235,10 +369,24 @@ class IngestPipeline:
 
     async def _chunk_text(self, state: IngestState) -> dict[str, Any]:
         """Chunk the extracted text."""
+        job_id = state["job_id"]
+        start_time = time.time()
+
         logger.info(
             "Chunking extracted text",
-            job_id=state["job_id"],
+            job_id=job_id,
             pages=len(state["ocr_results"]),
+        )
+
+        # Emit step started
+        await self._emit_event(
+            job_id,
+            StepStartedEvent(
+                job_id=job_id,
+                step_key="chunking",
+                step_name="Text Chunking",
+                step_order=3,
+            ),
         )
 
         # Prepare page texts for chunking
@@ -262,10 +410,23 @@ class IngestPipeline:
             document_id=state["document_id"],
         )
 
+        duration_ms = int((time.time() - start_time) * 1000)
+
         logger.info(
             "Chunking complete",
-            job_id=state["job_id"],
+            job_id=job_id,
             total_chunks=len(chunks),
+            duration_ms=duration_ms,
+        )
+
+        # Emit step completed
+        await self._emit_event(
+            job_id,
+            StepCompletedEvent(
+                job_id=job_id,
+                step_key="chunking",
+                duration_ms=duration_ms,
+            ),
         )
 
         return {
@@ -275,10 +436,24 @@ class IngestPipeline:
 
     async def _embed_and_store(self, state: IngestState) -> dict[str, Any]:
         """Generate embeddings and store in vector database."""
+        job_id = state["job_id"]
+        start_time = time.time()
+
         logger.info(
             "Embedding and storing chunks",
-            job_id=state["job_id"],
+            job_id=job_id,
             chunk_count=len(state["chunks"]),
+        )
+
+        # Emit step started
+        await self._emit_event(
+            job_id,
+            StepStartedEvent(
+                job_id=job_id,
+                step_key="embedding",
+                step_name="Embedding & Storage",
+                step_order=4,
+            ),
         )
 
         try:
@@ -292,7 +467,7 @@ class IngestPipeline:
                     page_number=chunk.page_number,
                     chunk_index=chunk.chunk_index,
                     metadata={
-                        "job_id": state["job_id"],
+                        "job_id": job_id,
                         "start_char": chunk.start_char,
                         "end_char": chunk.end_char,
                         **chunk.metadata,
@@ -300,13 +475,58 @@ class IngestPipeline:
                 )
                 documents.append(doc)
 
+            total_docs = len(documents)
+
+            # Emit progress during embedding
+            await self._emit_event(
+                job_id,
+                StepProgressEvent(
+                    job_id=job_id,
+                    step_key="embedding",
+                    progress=0.5,
+                    items_processed=0,
+                    items_total=total_docs,
+                    message=f"Embedding {total_docs} chunks...",
+                ),
+            )
+
             # Store documents (embeddings generated automatically)
             ids = await self.vector_store.add_documents(documents)
 
+            duration_ms = int((time.time() - start_time) * 1000)
+
             logger.info(
                 "Documents stored",
-                job_id=state["job_id"],
+                job_id=job_id,
                 count=len(ids),
+                duration_ms=duration_ms,
+            )
+
+            # Emit step completed
+            await self._emit_event(
+                job_id,
+                StepCompletedEvent(
+                    job_id=job_id,
+                    step_key="embedding",
+                    duration_ms=duration_ms,
+                ),
+            )
+
+            # Calculate total job duration
+            total_duration_ms = int((time.time() - (self._start_time or start_time)) * 1000)
+
+            # Emit job completed
+            await self._emit_event(
+                job_id,
+                JobCompletedEvent(
+                    job_id=job_id,
+                    duration_ms=total_duration_ms,
+                    results_summary={
+                        "pages_processed": len(state["ocr_results"]),
+                        "chunks_created": len(state["chunks"]),
+                        "embeddings_stored": len(ids),
+                    },
+                ),
             )
 
             return {
@@ -317,6 +537,15 @@ class IngestPipeline:
 
         except Exception as e:
             logger.error("Embedding/storage failed", error=str(e))
+            await self._emit_event(
+                job_id,
+                StepFailedEvent(
+                    job_id=job_id,
+                    step_key="embedding",
+                    error=str(e),
+                    can_retry=True,
+                ),
+            )
             return {
                 "status": "failed",
                 "error": f"Embedding/storage failed: {str(e)}",
@@ -330,11 +559,26 @@ class IngestPipeline:
 
     async def _handle_error(self, state: IngestState) -> dict[str, Any]:
         """Handle pipeline errors."""
+        job_id = state["job_id"]
+        error = state.get("error", "Unknown error")
+
         logger.error(
             "Pipeline error",
-            job_id=state["job_id"],
-            error=state.get("error"),
+            job_id=job_id,
+            error=error,
         )
+
+        # Emit job failed event
+        await self._emit_event(
+            job_id,
+            JobFailedEvent(
+                job_id=job_id,
+                error=error,
+                failed_step=None,
+                can_retry=True,
+            ),
+        )
+
         return {
             "status": "failed",
         }
@@ -360,6 +604,8 @@ class IngestPipeline:
         Returns:
             Final pipeline state
         """
+        self._start_time = time.time()
+
         initial_state: IngestState = {
             "job_id": job_id,
             "project_id": project_id,
@@ -382,6 +628,17 @@ class IngestPipeline:
             document_id=document_id,
         )
 
+        # Emit job started event
+        await self._emit_event(
+            job_id,
+            JobStatusChangedEvent(
+                job_id=job_id,
+                status="running",
+                progress=0.0,
+                current_step="parsing",
+            ),
+        )
+
         result = await self.graph.ainvoke(initial_state)
         return result
 
@@ -390,6 +647,14 @@ def create_ingest_graph(
     gemini_client: GeminiClient,
     embeddings: GeminiEmbeddings,
     vector_store: VectorStore,
+    redis_cache: RedisCache | None = None,
+    progress_callback: Callable[[Any], None] | None = None,
 ) -> IngestPipeline:
     """Factory function to create an ingestion pipeline."""
-    return IngestPipeline(gemini_client, embeddings, vector_store)
+    return IngestPipeline(
+        gemini_client,
+        embeddings,
+        vector_store,
+        redis_cache=redis_cache,
+        progress_callback=progress_callback,
+    )

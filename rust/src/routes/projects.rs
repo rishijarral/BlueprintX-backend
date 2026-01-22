@@ -19,6 +19,7 @@ use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::{CreateProjectRequest, ProjectResponse, ProjectStatus, UpdateProjectRequest};
 use crate::error::ApiError;
+use crate::services::cache::keys as cache_keys;
 
 /// Database row for project
 #[derive(Debug, sqlx::FromRow)]
@@ -176,7 +177,7 @@ pub async fn list_projects(
 
 /// GET /api/projects/:project_id
 ///
-/// Get a specific project by ID.
+/// Get a specific project by ID. Uses Redis cache for performance.
 pub async fn get_project(
     auth: RequireAuth,
     State(state): State<Arc<AppState>>,
@@ -188,6 +189,26 @@ pub async fn get_project(
         "Getting project"
     );
 
+    let cache_key = cache_keys::project(project_id);
+
+    // Try cache first
+    if let Some(cached) = state.cache.get::<ProjectResponse>(&cache_key).await {
+        // Verify ownership even for cached results
+        let owns: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2)"
+        )
+        .bind(project_id)
+        .bind(auth.user_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false);
+
+        if owns {
+            return Ok(Json(DataResponse::new(cached)));
+        }
+    }
+
+    // Cache miss or ownership check needed - fetch from DB
     let project = sqlx::query_as::<_, ProjectRow>(
         r#"
         SELECT id, owner_id, name, description, address, city, state, zip_code, status, estimated_value, bid_due_date, start_date, end_date, created_at, updated_at
@@ -203,6 +224,10 @@ pub async fn get_project(
     .ok_or_else(|| ApiError::not_found("Project not found"))?;
 
     let response: ProjectResponse = project.try_into()?;
+
+    // Cache the result (5 minute TTL)
+    let _ = state.cache.set(&cache_key, &response).await;
+
     Ok(Json(DataResponse::new(response)))
 }
 
@@ -288,6 +313,11 @@ pub async fn update_project(
     .map_err(|e| ApiError::internal(format!("Failed to update project: {}", e)))?;
 
     let response: ProjectResponse = project.try_into()?;
+
+    // Invalidate cache after update
+    let cache_key = cache_keys::project(project_id);
+    let _ = state.cache.delete(&cache_key).await;
+
     Ok(Json(DataResponse::new(response)))
 }
 
@@ -315,6 +345,12 @@ pub async fn delete_project(
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Project not found"));
     }
+
+    // Invalidate cache after delete
+    let cache_key = cache_keys::project(project_id);
+    let _ = state.cache.delete(&cache_key).await;
+    // Also invalidate project-related caches (documents, tenders, AI results)
+    let _ = state.cache.delete_pattern(&cache_keys::project_pattern(project_id)).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
