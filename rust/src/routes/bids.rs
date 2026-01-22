@@ -21,6 +21,7 @@ use crate::domain::bids::{BidResponse, BidStatus, CreateBidRequest};
 use crate::error::ApiError;
 
 /// Database row for bid
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct BidRow {
     id: Uuid,

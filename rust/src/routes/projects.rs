@@ -14,7 +14,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::pagination::PaginationParams;
-use crate::api::response::{DataResponse, Paginated, PaginationMeta};
+use crate::api::response::{DataResponse, Paginated};
 use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::{CreateProjectRequest, ProjectResponse, ProjectStatus, UpdateProjectRequest};
@@ -22,6 +22,7 @@ use crate::error::ApiError;
 use crate::services::cache::keys as cache_keys;
 
 /// Database row for project
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct ProjectRow {
     id: Uuid,

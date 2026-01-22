@@ -160,7 +160,7 @@ pub async fn get_extraction_summary(
     Path(project_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let materials_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM extracted_materials WHERE project_id = $1",
@@ -281,7 +281,7 @@ pub async fn list_materials(
     Query(query): Query<MaterialQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(50).min(100);
@@ -381,7 +381,7 @@ pub async fn create_material(
     auth: RequireAuth,
     Json(input): Json<MaterialInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let id = Uuid::new_v4();
     let total_cost = input.quantity.zip(input.unit_cost).map(|(q, c)| q * c);
@@ -454,7 +454,7 @@ pub async fn update_material(
     auth: RequireAuth,
     Json(input): Json<MaterialInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let total_cost = input.quantity.zip(input.unit_cost).map(|(q, c)| q * c);
 
@@ -529,7 +529,7 @@ pub async fn delete_material(
     Path((project_id, material_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let result = sqlx::query("DELETE FROM extracted_materials WHERE id = $1 AND project_id = $2")
         .bind(material_id)
@@ -552,7 +552,7 @@ pub async fn verify_material(
     auth: RequireAuth,
     Json(input): Json<VerifyItemRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let result = sqlx::query(
         r#"
@@ -565,7 +565,7 @@ pub async fn verify_material(
         "#,
     )
     .bind(input.is_verified)
-    .bind(auth.user_id())
+    .bind(auth.user_id)
     .bind(material_id)
     .bind(project_id)
     .execute(&state.db)
@@ -598,7 +598,7 @@ pub async fn list_rooms(
     Query(query): Query<RoomQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(50).min(100);
@@ -704,7 +704,7 @@ pub async fn create_room(
     auth: RequireAuth,
     Json(input): Json<RoomInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let id = Uuid::new_v4();
     let finishes = serde_json::to_value(input.finishes.unwrap_or_default())
@@ -748,7 +748,7 @@ pub async fn update_room(
     auth: RequireAuth,
     Json(input): Json<RoomInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let finishes = input.finishes.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({})));
     let fixtures = input.fixtures.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!([])));
@@ -793,7 +793,7 @@ pub async fn delete_room(
     Path((project_id, room_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let result = sqlx::query("DELETE FROM extracted_rooms WHERE id = $1 AND project_id = $2")
         .bind(room_id)
@@ -828,7 +828,7 @@ pub async fn list_milestones(
     Query(query): Query<MilestoneQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(50).min(100);
@@ -935,7 +935,7 @@ pub async fn create_milestone(
     auth: RequireAuth,
     Json(input): Json<MilestoneInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let id = Uuid::new_v4();
     let dependencies = serde_json::to_value(input.dependencies.unwrap_or_default())
@@ -983,7 +983,7 @@ pub async fn update_milestone(
     auth: RequireAuth,
     Json(input): Json<MilestoneInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let dependencies = input.dependencies.map(|d| serde_json::to_value(d).unwrap_or(serde_json::json!([])));
     let trades_involved = input.trades_involved.map(|t| serde_json::to_value(t).unwrap_or(serde_json::json!([])));
@@ -1037,7 +1037,7 @@ pub async fn delete_milestone(
     Path((project_id, milestone_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let result = sqlx::query("DELETE FROM project_milestones WHERE id = $1 AND project_id = $2")
         .bind(milestone_id)
@@ -1072,7 +1072,7 @@ pub async fn list_trade_scopes(
     Query(query): Query<TradeScopeQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(50).min(100);
@@ -1177,7 +1177,7 @@ pub async fn create_trade_scope(
     auth: RequireAuth,
     Json(input): Json<TradeScopeInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let id = Uuid::new_v4();
     let inclusions = serde_json::to_value(input.inclusions.unwrap_or_default())
@@ -1228,7 +1228,7 @@ pub async fn update_trade_scope(
     auth: RequireAuth,
     Json(input): Json<TradeScopeInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let inclusions = input.inclusions.map(|i| serde_json::to_value(i).unwrap_or(serde_json::json!([])));
     let exclusions = input.exclusions.map(|e| serde_json::to_value(e).unwrap_or(serde_json::json!([])));
@@ -1282,7 +1282,7 @@ pub async fn delete_trade_scope(
     Path((project_id, scope_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    verify_project_access(&state, project_id, auth.user_id()).await?;
+    verify_project_access(&state, project_id, auth.user_id).await?;
 
     let result = sqlx::query("DELETE FROM extracted_trade_scopes WHERE id = $1 AND project_id = $2")
         .bind(scope_id)

@@ -24,9 +24,11 @@ pub mod tasks;
 pub mod tenders;
 
 // Re-export commonly used types
+#[allow(unused_imports)]
 pub use bids::*;
 pub use documents::*;
 pub use projects::*;
+#[allow(unused_imports)]
 pub use tenders::*;
 
 // Auth, AI, and other types are accessed via crate::domain::module:: to avoid namespace pollution

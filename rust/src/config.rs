@@ -28,6 +28,7 @@ impl Environment {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub env: Environment,

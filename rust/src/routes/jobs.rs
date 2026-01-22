@@ -12,9 +12,9 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use futures::stream::{self, Stream};
+use futures::StreamExt;
 use serde::Deserialize;
 use std::{convert::Infallible, sync::Arc, time::Duration};
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::api::pagination::PaginationParams;
@@ -31,6 +31,7 @@ use crate::error::ApiError;
 // Database Row Types
 // ============================================================================
 
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct ProcessingJobRow {
     id: Uuid,
@@ -53,6 +54,7 @@ struct ProcessingJobRow {
     updated_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct ProcessingStepRow {
     id: Uuid,
@@ -126,7 +128,7 @@ pub async fn start_processing(
     auth: RequireAuth,
     Json(input): Json<StartProcessingRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -235,7 +237,7 @@ pub async fn list_project_jobs(
     Query(query): Query<JobQuery>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -338,7 +340,7 @@ pub async fn get_job(
     Path((project_id, job_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -370,7 +372,7 @@ pub async fn control_job(
     auth: RequireAuth,
     Json(input): Json<JobControlRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -496,7 +498,7 @@ pub async fn stream_job_progress(
     Path(project_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -515,7 +517,7 @@ pub async fn stream_job_progress(
     let db = state.db.clone();
     let stream = stream::unfold(
         (db, project_id, None::<DateTime<Utc>>),
-        |(db, project_id, last_check)| async move {
+        |(db, project_id, _last_check)| async move {
             // Wait a bit before checking again
             tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -566,7 +568,7 @@ pub async fn stream_job_progress(
             Some((events, (db, project_id, Some(now))))
         },
     )
-    .flat_map(|events| stream::iter(events.into_iter().map(Ok)));
+    .flat_map(|events| stream::iter(events.into_iter().map(Ok::<_, Infallible>)));
 
     Ok(Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()

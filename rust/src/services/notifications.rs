@@ -3,6 +3,8 @@
 //! Provides functions to create notifications from other parts of the application.
 //! This service is called by routes when events occur that should trigger notifications.
 
+#![allow(dead_code)]
+
 use sqlx::PgPool;
 use uuid::Uuid;
 

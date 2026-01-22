@@ -93,7 +93,7 @@ pub struct UpdateProjectRequest {
 }
 
 /// Response DTO for project
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectResponse {
     pub id: Uuid,
     pub name: String,

@@ -23,6 +23,7 @@ use crate::error::ApiError;
 // Database Row Types
 // ============================================================================
 
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct NotificationRow {
     id: Uuid,
@@ -61,7 +62,7 @@ pub async fn list_notifications(
     Query(query): Query<NotificationQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(20).min(100);
     let offset = ((page - 1) * per_page) as i64;
@@ -141,7 +142,7 @@ pub async fn get_unread_count(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false",
@@ -162,7 +163,7 @@ pub async fn get_notification(
     Path(notification_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let row = sqlx::query_as::<_, NotificationRow>(
         r#"
@@ -200,7 +201,7 @@ pub async fn mark_notification_read(
     Path(notification_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query(
         r#"
@@ -242,7 +243,7 @@ pub async fn mark_all_read(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query(
         r#"
@@ -270,7 +271,7 @@ pub async fn mark_batch_read(
     auth: RequireAuth,
     Json(input): Json<MarkReadRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let notification_ids = input.notification_ids.unwrap_or_default();
     if notification_ids.is_empty() {
@@ -304,7 +305,7 @@ pub async fn delete_notification(
     Path(notification_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query("DELETE FROM notifications WHERE id = $1 AND user_id = $2")
         .bind(notification_id)
@@ -327,7 +328,7 @@ pub async fn delete_all_read(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query("DELETE FROM notifications WHERE user_id = $1 AND is_read = true")
         .bind(user_id)

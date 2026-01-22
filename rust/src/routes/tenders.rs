@@ -14,7 +14,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::pagination::PaginationParams;
-use crate::api::response::{DataResponse, Paginated, PaginationMeta};
+use crate::api::response::{DataResponse, Paginated};
 use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::tenders::{CreateTenderRequest, TradeCategory, UpdateTenderRequest};

@@ -17,6 +17,7 @@ struct JwksResponse {
 }
 
 /// Individual JWK key (supports both RSA and EC)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct Jwk {
     kid: String,

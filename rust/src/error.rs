@@ -70,6 +70,11 @@ impl ApiError {
         Self::Internal(anyhow::anyhow!("{}", message.into()))
     }
 
+    /// Create a conflict error
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::Conflict(message.into())
+    }
+
     fn status_code(&self) -> StatusCode {
         match self {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,

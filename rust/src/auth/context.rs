@@ -42,6 +42,7 @@ impl AuthContext {
         })
     }
 
+    #[allow(dead_code)]
     #[deprecated(note = "Use from_claims_with_token instead")]
     pub fn from_claims(claims: &Claims) -> Result<Self, &'static str> {
         Self::from_claims_with_token(claims, "")

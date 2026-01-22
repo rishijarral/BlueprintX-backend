@@ -23,7 +23,6 @@ use crate::api::response::{DataResponse, Paginated, PaginationMeta};
 use crate::app::AppState;
 use crate::auth::RequireAuth;
 use crate::domain::marketplace::*;
-use crate::domain::subcontractors::RecentProject;
 use crate::error::ApiError;
 use crate::services::notifications;
 
@@ -427,7 +426,7 @@ pub async fn get_my_marketplace_profile(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let row = sqlx::query_as::<_, MarketplaceSubRow>(
         r#"
@@ -505,7 +504,7 @@ pub async fn update_my_marketplace_profile(
     auth: RequireAuth,
     Json(input): Json<UpdateMarketplaceProfileRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Check if profile exists
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
@@ -586,7 +585,7 @@ pub async fn request_verification(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query(
         r#"
@@ -618,7 +617,7 @@ pub async fn get_my_portfolio(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
         .bind(user_id)
@@ -656,7 +655,7 @@ pub async fn create_portfolio_project(
     auth: RequireAuth,
     Json(input): Json<PortfolioProjectRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
         .bind(user_id)
@@ -709,7 +708,7 @@ pub async fn update_portfolio_project(
     auth: RequireAuth,
     Json(input): Json<PortfolioProjectRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify ownership
     let exists: bool = sqlx::query_scalar(
@@ -780,7 +779,7 @@ pub async fn delete_portfolio_project(
     Path(project_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query(
         r#"
@@ -814,7 +813,7 @@ pub async fn list_saved_searches(
     State(state): State<Arc<AppState>>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let rows = sqlx::query_as::<_, SavedSearch>(
         r#"
@@ -843,7 +842,7 @@ pub async fn create_saved_search(
     auth: RequireAuth,
     Json(input): Json<CreateSavedSearchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let id = Uuid::new_v4();
 
     sqlx::query(
@@ -873,7 +872,7 @@ pub async fn delete_saved_search(
     Path(search_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query("DELETE FROM saved_searches WHERE id = $1 AND user_id = $2")
         .bind(search_id)
@@ -901,7 +900,7 @@ pub async fn list_marketplace_tenders(
     Query(query): Query<MarketplaceTenderQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(20).min(100);
     let offset = ((page - 1) * per_page) as i64;
@@ -1057,7 +1056,7 @@ pub async fn get_marketplace_tender(
     Path(tender_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Get sub_id if user is a subcontractor
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
@@ -1159,7 +1158,7 @@ pub async fn submit_bid(
     auth: RequireAuth,
     Json(input): Json<SubmitBidRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Get subcontractor ID
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
@@ -1272,7 +1271,7 @@ pub async fn update_bid(
     auth: RequireAuth,
     Json(input): Json<SubmitBidRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
         .bind(user_id)
@@ -1335,7 +1334,7 @@ pub async fn withdraw_bid(
     Path(tender_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let sub_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM subcontractors WHERE profile_id = $1")
         .bind(user_id)
@@ -1373,7 +1372,7 @@ pub async fn list_my_bids(
     Query(query): Query<PaginationParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).min(100);
     let offset = ((page - 1) * per_page) as i64;

@@ -99,6 +99,7 @@ struct HireMessageRow {
     created_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct ContractTemplateRow {
     id: Uuid,
@@ -114,6 +115,7 @@ struct ContractTemplateRow {
     updated_at: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct ContractRow {
     id: Uuid,
@@ -231,7 +233,7 @@ pub async fn list_external_subcontractors(
     Query(query): Query<ExternalSubQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(20).min(100);
     let offset = ((page - 1) * per_page) as i64;
@@ -326,7 +328,7 @@ pub async fn create_external_subcontractor(
     auth: RequireAuth,
     Json(input): Json<CreateExternalSubcontractorInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let id = Uuid::new_v4();
     let secondary_trades = serde_json::to_value(input.secondary_trades.unwrap_or_default())
         .unwrap_or(serde_json::json!([]));
@@ -367,7 +369,7 @@ pub async fn get_external_subcontractor(
     Path(sub_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let row = sqlx::query_as::<_, ExternalSubRow>(
         "SELECT * FROM external_subcontractors WHERE id = $1 AND added_by = $2",
@@ -413,7 +415,7 @@ pub async fn update_external_subcontractor(
     auth: RequireAuth,
     Json(input): Json<UpdateExternalSubcontractorInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let secondary_trades = input.secondary_trades.map(|t| serde_json::to_value(t).unwrap_or(serde_json::json!([])));
 
     let result = sqlx::query(
@@ -468,7 +470,7 @@ pub async fn delete_external_subcontractor(
     Path(sub_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query("DELETE FROM external_subcontractors WHERE id = $1 AND added_by = $2")
         .bind(sub_id)
@@ -504,7 +506,7 @@ pub async fn list_hire_requests(
     Query(query): Query<HireRequestQueryParams>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
     let page = query.pagination.page.unwrap_or(1).max(1);
     let per_page = query.pagination.per_page.unwrap_or(20).min(100);
     let offset = ((page - 1) * per_page) as i64;
@@ -649,7 +651,7 @@ pub async fn create_hire_request(
     auth: RequireAuth,
     Json(input): Json<CreateHireRequestInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let project_owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -723,7 +725,7 @@ pub async fn get_hire_request(
     Path(request_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let row = sqlx::query_as::<_, HireRequestRow>(
         r#"
@@ -822,7 +824,7 @@ pub async fn update_hire_request(
     auth: RequireAuth,
     Json(input): Json<UpdateHireRequestInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     let result = sqlx::query(
         r#"
@@ -873,7 +875,7 @@ pub async fn update_hire_request_status(
     auth: RequireAuth,
     Json(input): Json<HireRequestStatusInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Validate status transition
     let current: Option<(String, Uuid, Option<Uuid>)> = sqlx::query_as(
@@ -967,7 +969,7 @@ pub async fn list_hire_messages(
     Path(request_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify access
     let has_access: bool = sqlx::query_scalar(
@@ -1043,7 +1045,7 @@ pub async fn send_hire_message(
     auth: RequireAuth,
     Json(input): Json<SendMessageInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Get user type and verify access
     let access: Option<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
@@ -1061,7 +1063,7 @@ pub async fn send_hire_message(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    let (gc_id, _, user_type) = access
+    let (gc_id, _, _user_type) = access
         .ok_or_else(|| ApiError::forbidden("You don't have access to this conversation"))?;
 
     let sender_type = if gc_id == user_id { "gc" } else { "sub" };
@@ -1158,7 +1160,7 @@ pub async fn create_contract(
     auth: RequireAuth,
     Json(input): Json<CreateContractInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify GC owns the hire request
     let hire_request: Option<(Uuid, Uuid)> = sqlx::query_as(
@@ -1241,7 +1243,7 @@ pub async fn get_contract(
     Path(contract_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // TODO: Full contract query with joins
     let row = sqlx::query_as::<_, ContractRow>(
@@ -1350,7 +1352,7 @@ pub async fn sign_contract(
     auth: RequireAuth,
     Json(input): Json<SignContractInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     if !input.agreed_to_terms {
         return Err(ApiError::bad_request("Must agree to terms to sign"));
@@ -1430,7 +1432,7 @@ pub async fn list_team_members(
     Path(project_id): Path<Uuid>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project access
     let owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -1519,7 +1521,7 @@ pub async fn add_team_member(
     auth: RequireAuth,
     Json(input): Json<AddTeamMemberInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -1570,7 +1572,7 @@ pub async fn update_team_member(
     auth: RequireAuth,
     Json(input): Json<UpdateTeamMemberInput>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")
@@ -1626,7 +1628,7 @@ pub async fn remove_team_member(
     Path((project_id, member_id)): Path<(Uuid, Uuid)>,
     auth: RequireAuth,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user_id = auth.user_id();
+    let user_id = auth.user_id;
 
     // Verify project ownership
     let owner: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM projects WHERE id = $1")

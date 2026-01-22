@@ -33,6 +33,7 @@ use crate::services::notifications;
 
 /// Extractor that requires admin privileges.
 /// Uses RequireAuth internally and additionally checks is_admin flag.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RequireAdmin {
     pub auth: RequireAuth,
@@ -41,10 +42,11 @@ pub struct RequireAdmin {
 
 impl RequireAdmin {
     pub fn user_id(&self) -> Uuid {
-        self.auth.user_id()
+        self.auth.user_id
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AdminAuthError {
     NotAuthenticated,
@@ -89,7 +91,7 @@ impl FromRequestParts<Arc<AppState>> for RequireAdmin {
             .await
             .map_err(|_| AdminAuthError::NotAuthenticated)?;
 
-        let user_id = auth.user_id();
+        let user_id = auth.user_id;
 
         // Check if user has admin privileges
         let is_admin: Option<bool> = sqlx::query_scalar(
@@ -613,7 +615,7 @@ pub async fn reject_verification(
         WHERE id = $2
         "#,
     )
-    .bind(format!("Rejected: {}. Notes: {}", input.reason, input.notes.unwrap_or_default()))
+    .bind(format!("Rejected: {}. Notes: {}", input.reason, input.notes.clone().unwrap_or_default()))
     .bind(sub_id)
     .execute(&state.db)
     .await

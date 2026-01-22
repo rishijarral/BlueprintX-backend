@@ -8,4 +8,5 @@ pub mod notifications;
 
 pub use ai_client::AiClient;
 pub use cache::RedisCache;
+#[allow(unused_imports)]
 pub use notifications::*;

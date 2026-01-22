@@ -22,6 +22,7 @@ use crate::domain::{CreateDocumentRequest, DocumentResponse, DocumentStatus, Doc
 use crate::error::ApiError;
 
 /// Database row for document
+#[allow(dead_code)]
 #[derive(Debug, sqlx::FromRow)]
 struct DocumentRow {
     id: Uuid,

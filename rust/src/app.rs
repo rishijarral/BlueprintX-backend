@@ -60,9 +60,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Request ID layers
     let (set_request_id, propagate_request_id) = request_id_layer();
 
-    // Build router
+    // Build router (routes at root level, no /api prefix)
     Router::new()
-        .nest("/api", routes::api_router())
+        .merge(routes::api_router())
         // Middleware stack (applied bottom-up)
         .layer(propagate_request_id)
         .layer(trace_layer)
