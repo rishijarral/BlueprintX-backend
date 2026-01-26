@@ -13,8 +13,9 @@ RUN apt-get update && apt-get install -y \
 RUN cargo new --bin blueprintx-backend
 WORKDIR /app/blueprintx-backend
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy manifests (Cargo.lock is optional)
+COPY Cargo.toml ./
+COPY Cargo.lock* ./
 
 # Build dependencies only (this layer will be cached)
 RUN cargo build --release
