@@ -96,6 +96,20 @@ pub async fn create_project(
         "Creating project"
     );
 
+    // Ensure profile exists (handles users created directly in Supabase)
+    sqlx::query(
+        r#"
+        INSERT INTO profiles (id, email, user_type, created_at, updated_at)
+        VALUES ($1, $2, 'gc', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
+        "#
+    )
+    .bind(auth.user_id)
+    .bind(&auth.email)
+    .execute(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Failed to ensure profile: {}", e)))?;
+
     // Convert cents to decimal for storage
     let estimated_value = req
         .estimated_value

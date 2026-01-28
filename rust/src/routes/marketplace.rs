@@ -921,7 +921,7 @@ pub async fn list_marketplace_tenders(
         AND t.visibility = 'public'
         AND (t.bid_due_date IS NULL OR t.bid_due_date > NOW())
         AND ($1::text IS NULL OR t.trade_category ILIKE '%' || $1 || '%')
-        AND ($2::text IS NULL OR t.location ILIKE '%' || $2 || '%' OR p.location ILIKE '%' || $2 || '%')
+        AND ($2::text IS NULL OR t.location ILIKE '%' || $2 || '%' OR CONCAT_WS(', ', p.address, p.city, p.state) ILIKE '%' || $2 || '%')
         AND ($3::text IS NULL OR t.name ILIKE '%' || $3 || '%' OR t.description ILIKE '%' || $3 || '%')
         AND ($4::bigint IS NULL OR t.estimated_value >= $4)
         AND ($5::bigint IS NULL OR t.estimated_value <= $5)
@@ -955,7 +955,7 @@ pub async fn list_marketplace_tenders(
             t.id, t.project_id, p.name as project_name, 
             pr.company_name as gc_company_name,
             t.name, t.description, t.trade_category, t.scope_of_work,
-            COALESCE(t.location, p.location) as location,
+            COALESCE(t.location, CONCAT_WS(', ', p.address, p.city, p.state)) as location,
             t.status, COALESCE(t.visibility, 'public') as visibility,
             t.bid_due_date, t.estimated_value, t.reserve_price,
             COALESCE(t.requirements, '{{}}'::jsonb) as requirements,
@@ -974,7 +974,7 @@ pub async fn list_marketplace_tenders(
         AND t.visibility = 'public'
         AND (t.bid_due_date IS NULL OR t.bid_due_date > NOW())
         AND ($1::text IS NULL OR t.trade_category ILIKE '%' || $1 || '%')
-        AND ($2::text IS NULL OR t.location ILIKE '%' || $2 || '%' OR p.location ILIKE '%' || $2 || '%')
+        AND ($2::text IS NULL OR t.location ILIKE '%' || $2 || '%' OR CONCAT_WS(', ', p.address, p.city, p.state) ILIKE '%' || $2 || '%')
         AND ($3::text IS NULL OR t.name ILIKE '%' || $3 || '%' OR t.description ILIKE '%' || $3 || '%')
         AND ($4::bigint IS NULL OR t.estimated_value >= $4)
         AND ($5::bigint IS NULL OR t.estimated_value <= $5)
@@ -1071,7 +1071,7 @@ pub async fn get_marketplace_tender(
             t.id, t.project_id, p.name as project_name, 
             pr.company_name as gc_company_name,
             t.name, t.description, t.trade_category, t.scope_of_work,
-            COALESCE(t.location, p.location) as location,
+            COALESCE(t.location, CONCAT_WS(', ', p.address, p.city, p.state)) as location,
             t.status, COALESCE(t.visibility, 'public') as visibility,
             t.bid_due_date, t.estimated_value, t.reserve_price,
             COALESCE(t.requirements, '{}'::jsonb) as requirements,
